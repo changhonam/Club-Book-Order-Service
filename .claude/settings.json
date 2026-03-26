@@ -3,13 +3,23 @@
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "ruff check --fix \"$CLAUDE_FILE_PATH\" 2>/dev/null && ruff format \"$CLAUDE_FILE_PATH\" 2>/dev/null || true"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE_PATH=$(python -c \"import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))\") && echo \"$FILE_PATH\" | grep -qiE '\\.py$' && ruff check --fix \"$FILE_PATH\" 2>/dev/null && ruff format \"$FILE_PATH\" 2>/dev/null || true"
+          }
+        ]
       }
     ],
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "echo \"$CLAUDE_FILE_PATH\" | grep -qiE '\\.env|\\.toml$|secrets' && echo 'BLOCK: 민감 파일 수정 차단됨' >&2 && exit 1 || exit 0"
+        "hooks": [
+          {
+            "type": "command",
+            "command": "FILE_PATH=$(python -c \"import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))\") && echo \"$FILE_PATH\" | grep -qiE '\\.env|secrets|\\.toml$' && echo 'BLOCK: 민감 파일 수정 차단됨' >&2 && exit 2 || exit 0"
+          }
+        ]
       }
     ]
   }
