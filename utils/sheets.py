@@ -12,7 +12,10 @@ from google.oauth2.service_account import Credentials
 
 from utils import ConfigRecord, OrderRecord
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
 
 # --- 재시도 데코레이터 ---

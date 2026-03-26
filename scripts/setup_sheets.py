@@ -1,0 +1,98 @@
+"""Google Sheets 초기 설정 스크립트 - 워크시트 및 헤더 자동 생성."""
+
+import toml
+import gspread
+from google.oauth2.service_account import Credentials
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
+SECRETS_PATH = ".streamlit/secrets.toml"
+
+
+def setup():
+    secrets = toml.load(SECRETS_PATH)
+    creds = Credentials.from_service_account_info(
+        secrets["gcp_service_account"],
+        scopes=SCOPES,
+    )
+    client = gspread.authorize(creds)
+    spreadsheet_name = secrets["spreadsheet"]["name"]
+
+    try:
+        ss = client.open(spreadsheet_name)
+        print(f"스프레드시트 '{spreadsheet_name}' 열기 성공")
+    except gspread.SpreadsheetNotFound:
+        print(f"오류: '{spreadsheet_name}' 스프레드시트를 찾을 수 없습니다.")
+        print("Google Sheets에서 스프레드시트를 먼저 생성하고,")
+        print("서비스 계정 이메일을 편집자로 공유해주세요.")
+        return
+
+    # 기존 시트 이름 목록
+    existing = [ws.title for ws in ss.worksheets()]
+
+    # Members 시트
+    if "Members" not in existing:
+        ws = ss.add_worksheet(title="Members", rows=100, cols=1)
+        ws.update("A1", [["Name"]])
+        print("Members 시트 생성 완료")
+    else:
+        print("Members 시트 이미 존재")
+
+    # Orders 시트
+    if "Orders" not in existing:
+        ws = ss.add_worksheet(title="Orders", rows=1000, cols=8)
+        ws.update(
+            "A1",
+            [
+                [
+                    "Order_ID",
+                    "Order_Month",
+                    "Name",
+                    "Book_URL",
+                    "Title",
+                    "Author",
+                    "Price",
+                    "Created_At",
+                ]
+            ],
+        )
+        print("Orders 시트 생성 완료")
+    else:
+        print("Orders 시트 이미 존재")
+
+    # Config 시트
+    if "Config" not in existing:
+        ws = ss.add_worksheet(title="Config", rows=10, cols=2)
+        ws.update(
+            "A1",
+            [
+                ["Key", "Value"],
+                ["current_order_month", "2026-03"],
+                ["is_closed", "false"],
+                ["auto_close_datetime", ""],
+            ],
+        )
+        print("Config 시트 생성 완료 (초기값 포함)")
+    else:
+        print("Config 시트 이미 존재")
+
+    # Logs 시트
+    if "Logs" not in existing:
+        ws = ss.add_worksheet(title="Logs", rows=1000, cols=3)
+        ws.update("A1", [["Timestamp", "Event_Type", "Message"]])
+        print("Logs 시트 생성 완료")
+    else:
+        print("Logs 시트 이미 존재")
+
+    # 기본 'Sheet1' 시트 제거 (있으면)
+    if "Sheet1" in existing:
+        ss.del_worksheet(ss.worksheet("Sheet1"))
+        print("기본 Sheet1 시트 삭제")
+
+    print("\n초기 설정 완료!")
+
+
+if __name__ == "__main__":
+    setup()
