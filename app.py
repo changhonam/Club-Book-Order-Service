@@ -5,6 +5,7 @@ from datetime import datetime
 import streamlit as st
 
 from utils.sheets import append_log, get_config, update_config
+from utils.sidebar import init_session_state, render_sidebar
 
 # --- 페이지 설정 ---
 st.set_page_config(
@@ -14,25 +15,13 @@ st.set_page_config(
 )
 
 # --- session_state 초기화 ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "user_name" not in st.session_state:
-    st.session_state.user_name = None
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
-if "scraped_data" not in st.session_state:
-    st.session_state.scraped_data = None
+init_session_state()
 
 # --- 자동마감 체크 (접속 시 실행) ---
 config = get_config()
-if (
-    config.auto_close_datetime
-    and not config.is_closed
-):
+if config.auto_close_datetime and not config.is_closed:
     try:
-        auto_close_dt = datetime.strptime(
-            config.auto_close_datetime, "%Y-%m-%d %H:%M"
-        )
+        auto_close_dt = datetime.strptime(config.auto_close_datetime, "%Y-%m-%d %H:%M")
         if datetime.now() >= auto_close_dt:
             update_config(is_closed=True)
             append_log(
@@ -43,29 +32,7 @@ if (
         pass
 
 # --- 사이드바 ---
-with st.sidebar:
-    st.title("📚 독서동호회")
-
-    if st.session_state.logged_in:
-        role = "관리자" if st.session_state.is_admin else "회원"
-        st.info(f"👤 {st.session_state.user_name} ({role})")
-
-        # 현재 접수 상태
-        config = get_config()
-        st.caption(f"📅 접수월: {config.current_order_month}")
-        if config.is_closed:
-            st.caption("🔒 신청 마감")
-        else:
-            st.caption("🔓 신청 접수 중")
-
-        if st.button("로그아웃", use_container_width=True):
-            st.session_state.logged_in = False
-            st.session_state.user_name = None
-            st.session_state.is_admin = False
-            st.session_state.scraped_data = None
-            st.rerun()
-    else:
-        st.caption("로그인이 필요합니다")
+render_sidebar()
 
 # --- 메인 페이지 ---
 st.title("📚 독서동호회 도서 구매 신청 서비스")

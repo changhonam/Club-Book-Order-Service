@@ -3,14 +3,13 @@
 import streamlit as st
 
 from utils.sheets import append_log, find_member
+from utils.sidebar import init_session_state, render_sidebar
 
 # --- session_state 초기화 ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "user_name" not in st.session_state:
-    st.session_state.user_name = None
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
+init_session_state()
+
+# --- 사이드바 ---
+render_sidebar()
 
 # 관리자 인증 중간 단계 플래그
 if "_pending_admin" not in st.session_state:

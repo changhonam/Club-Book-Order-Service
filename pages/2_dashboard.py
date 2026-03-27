@@ -14,16 +14,13 @@ from utils.sheets import (
     get_config,
     get_orders_by_member,
 )
+from utils.sidebar import init_session_state, render_sidebar
 
 # --- session_state 초기화 ---
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "user_name" not in st.session_state:
-    st.session_state.user_name = None
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
-if "scraped_data" not in st.session_state:
-    st.session_state.scraped_data = None
+init_session_state()
+
+# --- 사이드바 ---
+render_sidebar()
 
 # --- 인증 가드 ---
 if not st.session_state.logged_in:
