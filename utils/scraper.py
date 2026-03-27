@@ -148,6 +148,15 @@ def _check_availability(soup: BeautifulSoup, url: str) -> tuple[bool, str | None
         if "절판" in buy_text:
             return False, "절판"
 
+    # 품절/절판 판별: 판매 상태 영역 (gd_saleState, gd_action 등)
+    sale_state_el = soup.select_one("p.gd_saleState, div.gd_actionCont")
+    if sale_state_el:
+        state_text = sale_state_el.get_text(strip=True)
+        if "품절" in state_text:
+            return False, "품절"
+        if "절판" in state_text:
+            return False, "절판"
+
     # 버튼 영역이 없거나 별도 품절 표시가 있는 경우
     soldout_el = soup.select_one("div.gd_sellout, em.gd_state")
     if soldout_el:
