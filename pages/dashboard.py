@@ -11,6 +11,7 @@ from utils.sheets import (
     append_log,
     clear_order_cache,
     delete_order,
+    find_member,
     get_config,
     get_orders_by_member,
 )
@@ -21,6 +22,11 @@ if not st.session_state.logged_in:
     st.stop()
 
 user_name: str = st.session_state.user_name
+
+# --- 회비 납부 상태 동기화 (로그인 후 변경 반영) ---
+_member = find_member(user_name)
+if _member is not None:
+    st.session_state.fee_paid = _member.fee_paid
 st.title(f"📖 {user_name}님의 도서 구매 신청")
 
 # --- 설정 로드 ---
