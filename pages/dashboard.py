@@ -5,7 +5,7 @@ from datetime import datetime
 import streamlit as st
 
 from utils.scraper import ScrapingError, scrape_book_info
-from utils.settlement import calculate_monthly_payment, calculate_per_order_breakdown
+from utils.settlement import calculate_monthly_payment
 from utils.sheets import (
     add_order,
     append_log,
@@ -82,19 +82,13 @@ st.divider()
 st.subheader("내 신청 목록")
 
 if my_orders:
-    breakdown = calculate_per_order_breakdown(my_orders)
-    breakdown_map = {b["order_id"]: b for b in breakdown}
-
     for order in my_orders:
-        bd = breakdown_map[order.order_id]
         with st.container():
             c1, c2 = st.columns([4, 1])
             with c1:
                 st.markdown(
                     f"**{order.title}** — {order.author}  \n"
                     f"판매가 {order.price:,}원 | "
-                    f"지원금 {bd['support']:,}원 | "
-                    f"본인부담 {bd['payment']:,}원 | "
                     f"신청일 {order.created_at}"
                 )
             with c2:

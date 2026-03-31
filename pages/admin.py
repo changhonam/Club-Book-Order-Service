@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from utils.scraper import ScrapingError, scrape_book_info
-from utils.settlement import calculate_monthly_payment, calculate_per_order_breakdown
+from utils.settlement import calculate_monthly_payment
 from utils.sheets import (
     add_member,
     add_order,
@@ -450,32 +450,45 @@ with tab6:
         if not export_orders:
             st.warning(f"{export_month}에 신청된 주문이 없습니다.")
         else:
-            # 회원별로 정산 계산
-            rows = []
             members_in_export = sorted({o.name for o in export_orders})
+
+            # --- Sheet 1: 신청 도서 리스트 ---
+            order_rows = []
             for member in members_in_export:
                 member_orders = [o for o in export_orders if o.name == member]
-                breakdown = calculate_per_order_breakdown(member_orders)
-                breakdown_map = {b["order_id"]: b for b in breakdown}
                 for o in member_orders:
-                    bd = breakdown_map.get(o.order_id, {})
-                    rows.append(
+                    order_rows.append(
                         {
                             "신청자": o.name,
                             "제목": o.title,
                             "저자": o.author,
                             "가격": o.price,
-                            "지원금": bd.get("support", 0),
-                            "본인부담": bd.get("payment", 0),
                             "URL": o.book_url,
                             "신청일": o.created_at,
                         }
                     )
+            df_orders = pd.DataFrame(order_rows)
 
-            df_export = pd.DataFrame(rows)
+            # --- Sheet 2: 도서 신청 비용 (신청자별 요약) ---
+            cost_rows = []
+            for member in members_in_export:
+                member_orders = [o for o in export_orders if o.name == member]
+                member_total = sum(o.price for o in member_orders)
+                settlement = calculate_monthly_payment(member_total)
+                cost_rows.append(
+                    {
+                        "신청자": member,
+                        "총 신청 금액": settlement.total_price,
+                        "지원금": settlement.club_support,
+                        "본인 부담금": settlement.user_payment,
+                    }
+                )
+            df_costs = pd.DataFrame(cost_rows)
+
             buffer = io.BytesIO()
             with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                df_export.to_excel(writer, index=False, sheet_name="도서신청")
+                df_orders.to_excel(writer, index=False, sheet_name="신청 도서 리스트")
+                df_costs.to_excel(writer, index=False, sheet_name="도서 신청 비용")
             buffer.seek(0)
 
             st.download_button(
