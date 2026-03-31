@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-st.title("📚 독서동호회 도서 구매 신청 서비스")
+st.title("📚 독서동호회 북덕북덕(안양) 도서 구매 신청 서비스")
 
 st.markdown(
     """
