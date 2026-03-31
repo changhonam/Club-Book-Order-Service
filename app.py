@@ -4,6 +4,7 @@ from datetime import datetime
 
 import streamlit as st
 
+from utils.navigation import build_page_list
 from utils.sheets import append_log, get_config, update_config
 from utils.sidebar import init_session_state, render_sidebar
 
@@ -34,30 +35,10 @@ if config.auto_close_datetime and not config.is_closed:
 # --- 사이드바 ---
 render_sidebar()
 
-# --- 메인 페이지 ---
-st.title("📚 독서동호회 도서 구매 신청 서비스")
-
-if not st.session_state.logged_in:
-    st.markdown(
-        """
-        ### 서비스 안내
-        - 📖 Yes24 도서 링크로 간편하게 구매 신청
-        - 💰 동호회 지원금 자동 정산 (최대 30,000원)
-        - 📊 신청 현황 및 정산 내역 조회
-
-        👈 **왼쪽 메뉴에서 로그인 페이지로 이동하세요.**
-        """
-    )
-else:
-    user_name = st.session_state.user_name
-    st.markdown(
-        f"""
-        ### 안녕하세요, {user_name}님! 👋
-
-        왼쪽 메뉴에서 원하는 페이지로 이동하세요.
-
-        - **📖 대시보드**: 도서 신청 및 현황 조회
-        """
-    )
-    if st.session_state.is_admin:
-        st.markdown("- **🔧 관리자**: 회원 관리, 신청 현황, 정산")
+# --- 네비게이션 ---
+pages = build_page_list(
+    logged_in=st.session_state.logged_in,
+    is_admin=st.session_state.is_admin,
+)
+pg = st.navigation(pages)
+pg.run()

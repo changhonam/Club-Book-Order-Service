@@ -104,16 +104,19 @@ streamlit run app.py
 ## 프로젝트 구조
 
 ```
-├── app.py                      # Streamlit 메인 앱 (자동마감 체크, 사이드바)
+├── app.py                      # Streamlit 메인 앱 (st.navigation 기반, 자동마감 체크)
 ├── pages/
-│   ├── 1_login.py              # 로그인 (이름 + PIN 인증, 관리자 비밀번호)
-│   ├── 2_dashboard.py          # 대시보드 (도서 신청, 정산 조회)
-│   └── 3_admin.py              # 관리자 (회원/주문/회비 관리, 대리 신청, Excel 내보내기)
+│   ├── home.py                 # 홈 - 서비스 안내
+│   ├── login.py                # 로그인 / 프로필 (PIN 변경)
+│   ├── dashboard.py            # 도서 구매 신청 및 정산 조회
+│   └── admin.py                # 관리자 (회원/주문/회비 관리, 대리 신청, Excel 내보내기)
 ├── utils/
 │   ├── __init__.py             # 데이터 모델 (BookInfo, Settlement, OrderRecord, MemberRecord, ConfigRecord)
 │   ├── sheets.py               # Google Sheets CRUD (캐싱, 재시도 포함)
 │   ├── scraper.py              # Yes24 도서 정보 스크래핑
-│   └── settlement.py           # 정산 로직 (지원금 계산, 주문별 배분)
+│   ├── settlement.py           # 정산 로직 (지원금 계산, 주문별 배분)
+│   ├── navigation.py           # 네비게이션 페이지 목록 생성
+│   └── sidebar.py              # 사이드바 렌더링 및 session_state 초기화
 ├── scripts/
 │   └── setup_sheets.py         # Google Sheets 초기 설정 스크립트
 ├── tests/
@@ -122,6 +125,7 @@ streamlit run app.py
 │   ├── test_settlement.py      # 정산 로직 테스트
 │   ├── test_sheets.py          # Sheets CRUD 테스트
 │   ├── test_members.py         # 회원 관리(PIN, 회비) 테스트
+│   ├── test_navigation.py      # 네비게이션 로직 테스트
 │   └── test_integration.py     # 통합 테스트
 ├── docs/
 │   ├── PRD.md                  # 제품 요구사항 정의서

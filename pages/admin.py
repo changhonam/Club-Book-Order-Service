@@ -9,8 +9,6 @@ import streamlit as st
 
 from utils.scraper import ScrapingError, scrape_book_info
 from utils.settlement import calculate_monthly_payment, calculate_per_order_breakdown
-from utils.sidebar import init_session_state, render_sidebar
-
 from utils.sheets import (
     add_member,
     add_order,
@@ -30,12 +28,6 @@ from utils.sheets import (
     update_member_fee_paid,
     update_member_pin,
 )
-
-# --- session_state 초기화 ---
-init_session_state()
-
-# --- 사이드바 ---
-render_sidebar()
 
 # --- 인증 가드 ---
 if not st.session_state.get("logged_in", False):

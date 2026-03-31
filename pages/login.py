@@ -2,42 +2,39 @@
 
 import streamlit as st
 
-from utils.sheets import append_log, find_member
-from utils.sidebar import init_session_state, render_sidebar
-
-# --- session_state 초기화 ---
-init_session_state()
-
-# --- 사이드바 ---
-render_sidebar()
-
-# 관리자 인증 중간 단계 플래그
-if "_pending_admin" not in st.session_state:
-    st.session_state._pending_admin = False
-if "_pending_name" not in st.session_state:
-    st.session_state._pending_name = None
-if "_pending_fee_paid" not in st.session_state:
-    st.session_state._pending_fee_paid = False
-
-st.title("📚 독서동호회 도서 구매 신청")
-st.subheader("로그인")
+from utils.sheets import append_log, find_member, update_member_pin
 
 # --- 이미 로그인 상태 ---
 if st.session_state.logged_in:
+    st.title("👤 프로필")
     role = "관리자" if st.session_state.is_admin else "회원"
     st.success(f"{st.session_state.user_name}님으로 로그인되어 있습니다 ({role})")
-    if st.button("로그아웃"):
-        st.session_state.logged_in = False
-        st.session_state.user_name = None
-        st.session_state.is_admin = False
-        st.session_state.fee_paid = False
-        st.session_state._pending_admin = False
-        st.session_state._pending_name = None
-        st.session_state._pending_fee_paid = False
-        st.rerun()
+
+    st.divider()
+
+    st.subheader("PIN 변경")
+    new_pin = st.text_input(
+        "새 PIN (숫자 4자리)", type="password", max_chars=4, key="new_pin"
+    )
+    confirm_pin = st.text_input(
+        "새 PIN 확인", type="password", max_chars=4, key="confirm_pin"
+    )
+    if st.button("PIN 변경"):
+        if not new_pin or not confirm_pin:
+            st.warning("PIN을 입력해주세요")
+        elif not new_pin.isdigit() or len(new_pin) != 4:
+            st.error("PIN은 숫자 4자리여야 합니다")
+        elif new_pin != confirm_pin:
+            st.error("PIN이 일치하지 않습니다")
+        else:
+            if update_member_pin(st.session_state.user_name, new_pin):
+                st.success("PIN이 변경되었습니다")
+            else:
+                st.error("PIN 변경에 실패했습니다")
 
 # --- 관리자 비밀번호 입력 단계 ---
 elif st.session_state._pending_admin:
+    st.title("🔑 로그인")
     name = st.session_state._pending_name
     st.info(
         f"{name}님은 관리자입니다. 비밀번호를 입력하거나 일반 회원으로 로그인하세요."
@@ -78,6 +75,7 @@ elif st.session_state._pending_admin:
 
 # --- 로그인 폼 ---
 else:
+    st.title("🔑 로그인")
     with st.form("login_form"):
         name = st.text_input("이름")
         pin = st.text_input("PIN (4자리)", type="password", max_chars=4)

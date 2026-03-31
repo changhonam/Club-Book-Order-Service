@@ -13,15 +13,7 @@ from utils.sheets import (
     delete_order,
     get_config,
     get_orders_by_member,
-    update_member_pin,
 )
-from utils.sidebar import init_session_state, render_sidebar
-
-# --- session_state 초기화 ---
-init_session_state()
-
-# --- 사이드바 ---
-render_sidebar()
 
 # --- 인증 가드 ---
 if not st.session_state.logged_in:
@@ -29,7 +21,7 @@ if not st.session_state.logged_in:
     st.stop()
 
 user_name: str = st.session_state.user_name
-st.title(f"📖 {user_name}님의 대시보드")
+st.title(f"📖 {user_name}님의 도서 구매 신청")
 
 # --- 설정 로드 ---
 config = get_config()
@@ -172,27 +164,3 @@ else:
             st.session_state.scraped_data = None
             st.success("신청이 완료되었습니다")
             st.rerun()
-
-st.divider()
-
-# --- PIN 변경 ---
-with st.expander("PIN 변경"):
-    new_pin = st.text_input(
-        "새 PIN (숫자 4자리)", type="password", max_chars=4, key="new_pin"
-    )
-    confirm_pin = st.text_input(
-        "새 PIN 확인", type="password", max_chars=4, key="confirm_pin"
-    )
-
-    if st.button("PIN 변경"):
-        if not new_pin or not confirm_pin:
-            st.warning("PIN을 입력해주세요")
-        elif not new_pin.isdigit() or len(new_pin) != 4:
-            st.error("PIN은 숫자 4자리여야 합니다")
-        elif new_pin != confirm_pin:
-            st.error("PIN이 일치하지 않습니다")
-        else:
-            if update_member_pin(user_name, new_pin):
-                st.success("PIN이 변경되었습니다")
-            else:
-                st.error("PIN 변경에 실패했습니다")

@@ -17,6 +17,12 @@ def init_session_state():
         st.session_state.scraped_data = None
     if "fee_paid" not in st.session_state:
         st.session_state.fee_paid = False
+    if "_pending_admin" not in st.session_state:
+        st.session_state._pending_admin = False
+    if "_pending_name" not in st.session_state:
+        st.session_state._pending_name = None
+    if "_pending_fee_paid" not in st.session_state:
+        st.session_state._pending_fee_paid = False
 
 
 def render_sidebar():

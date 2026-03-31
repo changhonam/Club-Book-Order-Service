@@ -18,12 +18,19 @@
 
 ## 프로젝트 구조
 ```
-├── app.py                  # Streamlit 메인 앱
-├── pages/                  # Streamlit 멀티페이지
-├── utils/                  # 유틸리티 모듈
+├── app.py                  # Streamlit 메인 앱 (st.navigation 기반)
+├── pages/
+│   ├── home.py             # 홈 - 서비스 안내
+│   ├── login.py            # 로그인 / 프로필 (PIN 변경)
+│   ├── dashboard.py        # 도서 구매 신청 및 현황 조회
+│   └── admin.py            # 관리자 (회원/주문/회비 관리, 대리 신청, Excel)
+├── utils/
+│   ├── __init__.py         # 데이터 모델
 │   ├── sheets.py           # Google Sheets CRUD
 │   ├── scraper.py          # Yes24 스크래핑
-│   └── settlement.py       # 정산 로직
+│   ├── settlement.py       # 정산 로직
+│   ├── navigation.py       # 네비게이션 페이지 목록 생성
+│   └── sidebar.py          # 사이드바 및 session_state 초기화
 ├── requirements.txt
 ├── .streamlit/
 │   ├── config.toml
