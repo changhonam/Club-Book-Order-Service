@@ -1,4 +1,4 @@
-"""로그인 페이지 — 이름 기반 심플 로그인 + 관리자 비밀번호 인증."""
+"""로그인 페이지 — 이름 + PIN 인증 + 관리자 비밀번호 인증."""
 
 import streamlit as st
 
@@ -16,6 +16,8 @@ if "_pending_admin" not in st.session_state:
     st.session_state._pending_admin = False
 if "_pending_name" not in st.session_state:
     st.session_state._pending_name = None
+if "_pending_fee_paid" not in st.session_state:
+    st.session_state._pending_fee_paid = False
 
 st.title("📚 독서동호회 도서 구매 신청")
 st.subheader("로그인")
@@ -28,8 +30,10 @@ if st.session_state.logged_in:
         st.session_state.logged_in = False
         st.session_state.user_name = None
         st.session_state.is_admin = False
+        st.session_state.fee_paid = False
         st.session_state._pending_admin = False
         st.session_state._pending_name = None
+        st.session_state._pending_fee_paid = False
         st.rerun()
 
 # --- 관리자 비밀번호 입력 단계 ---
@@ -52,8 +56,10 @@ elif st.session_state._pending_admin:
             st.session_state.logged_in = True
             st.session_state.user_name = name
             st.session_state.is_admin = True
+            st.session_state.fee_paid = st.session_state._pending_fee_paid
             st.session_state._pending_admin = False
             st.session_state._pending_name = None
+            st.session_state._pending_fee_paid = False
             append_log("LOGIN", f"{name} 관리자 로그인")
             st.rerun()
         else:
@@ -63,8 +69,10 @@ elif st.session_state._pending_admin:
         st.session_state.logged_in = True
         st.session_state.user_name = name
         st.session_state.is_admin = False
+        st.session_state.fee_paid = st.session_state._pending_fee_paid
         st.session_state._pending_admin = False
         st.session_state._pending_name = None
+        st.session_state._pending_fee_paid = False
         append_log("LOGIN", f"{name} 로그인")
         st.rerun()
 
@@ -72,25 +80,32 @@ elif st.session_state._pending_admin:
 else:
     with st.form("login_form"):
         name = st.text_input("이름")
+        pin = st.text_input("PIN (4자리)", type="password", max_chars=4)
         submitted = st.form_submit_button("로그인")
 
     if submitted:
         if not name.strip():
             st.warning("이름을 입력해주세요")
-        elif not find_member(name.strip()):
-            st.error("등록되지 않은 이름입니다. 관리자에게 등록을 요청하세요.")
         else:
-            name = name.strip()
-            admin_name = st.secrets["admin"]["name"]
-            if name == admin_name:
-                # 관리자 확인 단계로 전환
-                st.session_state._pending_admin = True
-                st.session_state._pending_name = name
-                st.rerun()
+            member = find_member(name.strip())
+            if member is None:
+                st.error("등록되지 않은 이름입니다. 관리자에게 등록을 요청하세요.")
+            elif pin != member.pin:
+                st.error("PIN이 올바르지 않습니다")
             else:
-                # 일반 회원 로그인
-                st.session_state.logged_in = True
-                st.session_state.user_name = name
-                st.session_state.is_admin = False
-                append_log("LOGIN", f"{name} 로그인")
-                st.rerun()
+                name = name.strip()
+                admin_name = st.secrets["admin"]["name"]
+                if name == admin_name:
+                    # 관리자 확인 단계로 전환
+                    st.session_state._pending_admin = True
+                    st.session_state._pending_name = name
+                    st.session_state._pending_fee_paid = member.fee_paid
+                    st.rerun()
+                else:
+                    # 일반 회원 로그인
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = name
+                    st.session_state.is_admin = False
+                    st.session_state.fee_paid = member.fee_paid
+                    append_log("LOGIN", f"{name} 로그인")
+                    st.rerun()

@@ -13,6 +13,7 @@ from utils.sheets import (
     delete_order,
     get_config,
     get_orders_by_member,
+    update_member_pin,
 )
 from utils.sidebar import init_session_state, render_sidebar
 
@@ -60,7 +61,7 @@ selected_month = st.selectbox(
 )
 
 is_current_month = selected_month == current_month
-can_modify = is_current_month and not is_closed
+can_modify = is_current_month and not is_closed and st.session_state.fee_paid
 
 if not is_current_month:
     st.info("과거 월은 조회만 가능합니다 (신청/취소 불가)")
@@ -122,6 +123,8 @@ if not is_current_month:
     st.info("현재 접수월이 아닙니다")
 elif is_closed:
     st.warning("신청이 마감되었습니다")
+elif not st.session_state.fee_paid:
+    st.warning("회비 납부 후 도서 신청이 가능합니다")
 else:
     url_input = st.text_input(
         "Yes24 도서 URL", placeholder="https://www.yes24.com/Product/Goods/..."
@@ -169,3 +172,27 @@ else:
             st.session_state.scraped_data = None
             st.success("신청이 완료되었습니다")
             st.rerun()
+
+st.divider()
+
+# --- PIN 변경 ---
+with st.expander("PIN 변경"):
+    new_pin = st.text_input(
+        "새 PIN (숫자 4자리)", type="password", max_chars=4, key="new_pin"
+    )
+    confirm_pin = st.text_input(
+        "새 PIN 확인", type="password", max_chars=4, key="confirm_pin"
+    )
+
+    if st.button("PIN 변경"):
+        if not new_pin or not confirm_pin:
+            st.warning("PIN을 입력해주세요")
+        elif not new_pin.isdigit() or len(new_pin) != 4:
+            st.error("PIN은 숫자 4자리여야 합니다")
+        elif new_pin != confirm_pin:
+            st.error("PIN이 일치하지 않습니다")
+        else:
+            if update_member_pin(user_name, new_pin):
+                st.success("PIN이 변경되었습니다")
+            else:
+                st.error("PIN 변경에 실패했습니다")

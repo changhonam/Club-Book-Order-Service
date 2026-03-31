@@ -10,7 +10,7 @@ import gspread
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-from utils import ConfigRecord, OrderRecord
+from utils import ConfigRecord, MemberRecord, OrderRecord
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -66,26 +66,40 @@ def _get_spreadsheet():
 
 
 @st.cache_data(ttl=600)
-def get_all_members() -> list[str]:
-    """전체 회원 이름 목록 반환. TTL=600초 캐싱."""
+def get_all_members() -> list[MemberRecord]:
+    """전체 회원 목록 반환. TTL=600초 캐싱."""
     ws = _get_spreadsheet().worksheet("Members")
-    values = ws.col_values(1)
-    # 헤더 제외
-    return values[1:] if values else []
+    records = ws.get_all_records()
+    return [
+        MemberRecord(
+            name=str(r.get("Name", "")),
+            pin=str(r.get("PIN", "0000")).zfill(4),
+            fee_paid=str(r.get("Fee_Paid", "false")).lower() == "true",
+        )
+        for r in records
+    ]
 
 
-def find_member(name: str) -> bool:
-    """회원 이름이 명부에 존재하는지 확인."""
-    return name in get_all_members()
+def get_member_names() -> list[str]:
+    """전체 회원 이름 목록만 반환."""
+    return [m.name for m in get_all_members()]
+
+
+def find_member(name: str) -> Optional[MemberRecord]:
+    """회원 조회. 미등록이면 None 반환."""
+    for m in get_all_members():
+        if m.name == name:
+            return m
+    return None
 
 
 @with_retry()
 def add_member(name: str) -> bool:
-    """회원 추가. 이미 존재하면 False 반환."""
-    if find_member(name):
+    """회원 추가. 이미 존재하면 False 반환. PIN=0000, Fee_Paid=false."""
+    if find_member(name) is not None:
         return False
     ws = _get_spreadsheet().worksheet("Members")
-    ws.append_row([name])
+    ws.append_row([name, "0000", "false"], value_input_option="RAW")
     clear_member_cache()
     return True
 
@@ -100,6 +114,44 @@ def remove_member(name: str) -> bool:
     ws.delete_rows(cell.row)
     clear_member_cache()
     return True
+
+
+@with_retry()
+def update_member_pin(name: str, new_pin: str) -> bool:
+    """회원 PIN 변경. 존재하지 않으면 False 반환."""
+    ws = _get_spreadsheet().worksheet("Members")
+    cell = ws.find(name, in_column=1)
+    if cell is None:
+        return False
+    ws.update(range_name=f"B{cell.row}", values=[[new_pin]], value_input_option="RAW")
+    clear_member_cache()
+    return True
+
+
+@with_retry()
+def update_member_fee_paid(name: str, fee_paid: bool) -> bool:
+    """회원 회비 납부 상태 변경. 존재하지 않으면 False 반환."""
+    ws = _get_spreadsheet().worksheet("Members")
+    cell = ws.find(name, in_column=1)
+    if cell is None:
+        return False
+    ws.update_cell(cell.row, 3, "true" if fee_paid else "false")
+    clear_member_cache()
+    return True
+
+
+@with_retry()
+def reset_all_fee_paid() -> int:
+    """전체 회원 회비 납부 상태를 미납으로 초기화. 변경 건수 반환."""
+    ws = _get_spreadsheet().worksheet("Members")
+    records = ws.get_all_records()
+    count = 0
+    for idx, r in enumerate(records):
+        if str(r.get("Fee_Paid", "false")).lower() == "true":
+            ws.update_cell(idx + 2, 3, "false")  # +2: 헤더 + 0-based
+            count += 1
+    clear_member_cache()
+    return count
 
 
 # --- Orders ---

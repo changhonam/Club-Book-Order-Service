@@ -16,14 +16,19 @@ from utils.sheets import (
     add_order,
     append_log,
     clear_config_cache,
+    clear_member_cache,
     clear_order_cache,
     delete_orders_by_month,
     get_all_members,
     get_config,
+    get_member_names,
     get_orders_by_month,
     get_recent_logs,
     remove_member,
+    reset_all_fee_paid,
     update_config,
+    update_member_fee_paid,
+    update_member_pin,
 )
 
 # --- session_state 초기화 ---
@@ -45,8 +50,8 @@ st.title("🔧 관리자 페이지")
 
 config = get_config()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["접수 관리", "신청 현황", "회원 관리", "대리 신청", "내보내기 & 로그"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["접수 관리", "신청 현황", "회원 관리", "회비 관리", "대리 신청", "내보내기 & 로그"]
 )
 
 # =============================================================================
@@ -158,11 +163,11 @@ with tab2:
             .agg(주문수=("제목", "count"), 총액=("가격", "sum"))
             .reset_index()
         )
-        st.dataframe(summary, use_container_width=True)
+        st.dataframe(summary, width="stretch")
 
         # --- 전체 주문 목록 ---
         st.markdown("#### 전체 주문 목록")
-        st.dataframe(df_orders, use_container_width=True)
+        st.dataframe(df_orders, width="stretch")
 
         # --- 예산 요약 ---
         st.markdown("#### 예산 요약")
@@ -197,9 +202,37 @@ with tab3:
     # --- 회원 목록 ---
     st.markdown("#### 회원 목록")
     members = get_all_members()
+    member_names = get_member_names()
     if members:
-        df_members = pd.DataFrame({"이름": members})
-        st.dataframe(df_members, use_container_width=True)
+        df_members = pd.DataFrame(
+            {
+                "이름": [m.name for m in members],
+                "PIN": ["****" for _ in members],
+                "회비 납부": ["납부" if m.fee_paid else "미납" for m in members],
+            }
+        )
+        st.dataframe(df_members, width="stretch")
+    else:
+        st.info("등록된 회원이 없습니다.")
+
+    st.divider()
+
+    # --- PIN 초기화 ---
+    st.markdown("#### PIN 초기화")
+    if member_names:
+        pin_reset_member = st.selectbox(
+            "PIN 초기화할 회원 선택", member_names, key="admin_pin_reset_member"
+        )
+        if st.button("PIN 초기화 (0000)", key="btn_reset_pin"):
+            if update_member_pin(pin_reset_member, "0000"):
+                append_log("PIN_RESET", f"PIN 초기화: {pin_reset_member}")
+                st.success(
+                    f"'{pin_reset_member}' 회원의 PIN이 0000으로 초기화되었습니다."
+                )
+                clear_member_cache()
+                st.rerun()
+            else:
+                st.error("PIN 초기화에 실패했습니다.")
     else:
         st.info("등록된 회원이 없습니다.")
 
@@ -216,6 +249,7 @@ with tab3:
             if add_member(name):
                 append_log("MEMBER_ADD", f"회원 추가: {name}")
                 st.success(f"'{name}' 회원이 추가되었습니다.")
+                clear_member_cache()
                 st.rerun()
             else:
                 st.error(f"'{name}'은(는) 이미 등록된 회원입니다.")
@@ -224,13 +258,16 @@ with tab3:
 
     # --- 회원 삭제 ---
     st.markdown("#### 회원 삭제")
-    if members:
-        del_member = st.selectbox("삭제할 회원 선택", members, key="admin_del_member")
+    if member_names:
+        del_member = st.selectbox(
+            "삭제할 회원 선택", member_names, key="admin_del_member"
+        )
         st.warning(f"'{del_member}' 회원을 삭제하면 되돌릴 수 없습니다.")
         if st.button("정말 삭제하시겠습니까?", key="btn_del_member"):
             if remove_member(del_member):
                 append_log("MEMBER_DELETE", f"회원 삭제: {del_member}")
                 st.success(f"'{del_member}' 회원이 삭제되었습니다.")
+                clear_member_cache()
                 st.rerun()
             else:
                 st.error("삭제에 실패했습니다.")
@@ -238,12 +275,79 @@ with tab3:
         st.info("삭제할 회원이 없습니다.")
 
 # =============================================================================
-# 탭 4: 대리 신청
+# 탭 4: 회비 관리
 # =============================================================================
 with tab4:
+    st.subheader("회비 관리")
+
+    # --- 빠른 납부 체크 ---
+    st.markdown("#### 빠른 납부 체크")
+    st.caption("회원 이름을 입력하고 Enter를 누르면 납부 처리됩니다.")
+    with st.form("fee_check_form", clear_on_submit=True):
+        fee_member_name = st.text_input("회원 이름", key="fee_quick_name")
+        submitted = st.form_submit_button("납부 처리")
+        if submitted:
+            name = fee_member_name.strip()
+            if not name:
+                st.warning("이름을 입력해주세요.")
+            elif name not in get_member_names():
+                st.error(f"'{name}'은(는) 등록되지 않은 회원입니다.")
+            else:
+                if update_member_fee_paid(name, True):
+                    append_log("FEE_PAID", f"회비 납부 처리: {name}")
+                    st.success(f"'{name}' 회원의 회비가 납부 처리되었습니다.")
+                    clear_member_cache()
+                else:
+                    st.error("납부 처리에 실패했습니다.")
+
+    st.divider()
+
+    # --- 납부 현황 ---
+    st.markdown("#### 납부 현황")
+    fee_members = get_all_members()
+    if fee_members:
+        paid_count = sum(1 for m in fee_members if m.fee_paid)
+        unpaid_count = len(fee_members) - paid_count
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("전체 회원", f"{len(fee_members)}명")
+        with col2:
+            st.metric("납부", f"{paid_count}명")
+        with col3:
+            st.metric("미납", f"{unpaid_count}명")
+
+        df_fee = pd.DataFrame(
+            {
+                "이름": [m.name for m in fee_members],
+                "납부 상태": ["납부" if m.fee_paid else "미납" for m in fee_members],
+            }
+        )
+        st.dataframe(df_fee, width="stretch")
+    else:
+        st.info("등록된 회원이 없습니다.")
+
+    st.divider()
+
+    # --- 전체 회비 초기화 ---
+    st.markdown("#### 전체 회비 초기화")
+    st.warning(
+        "모든 회원의 회비 납부 상태를 미납으로 초기화합니다. 이 작업은 되돌릴 수 없습니다."
+    )
+    if st.button("전체 회비 초기화", key="btn_reset_all_fee"):
+        count = reset_all_fee_paid()
+        append_log("FEE_RESET_ALL", f"전체 회비 초기화: {count}건")
+        st.success(f"전체 회원 {count}명의 회비 상태가 미납으로 초기화되었습니다.")
+        clear_member_cache()
+        st.rerun()
+
+# =============================================================================
+# 탭 5: 대리 신청
+# =============================================================================
+with tab5:
     st.subheader("대리 신청")
 
-    members_for_proxy = get_all_members()
+    members_for_proxy = get_member_names()
     if not members_for_proxy:
         st.warning("등록된 회원이 없습니다. 먼저 회원을 추가해주세요.")
         st.stop()
@@ -336,9 +440,9 @@ with tab4:
             st.rerun()
 
 # =============================================================================
-# 탭 5: 내보내기 & 로그
+# 탭 6: 내보내기 & 로그
 # =============================================================================
-with tab5:
+with tab6:
     st.subheader("내보내기 & 로그")
 
     # --- Excel 내보내기 ---
@@ -419,6 +523,6 @@ with tab5:
     if logs:
         df_logs = pd.DataFrame(logs)
         df_logs.columns = ["시간", "이벤트", "메시지"]
-        st.dataframe(df_logs, use_container_width=True)
+        st.dataframe(df_logs, width="stretch")
     else:
         st.info("로그가 없습니다.")

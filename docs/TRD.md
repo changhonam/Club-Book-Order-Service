@@ -13,6 +13,8 @@
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | Name | String | 회원 이름 (PK 역할, 고유하게 등록됨) |
+| PIN | String | 4자리 숫자 PIN (기본값: "0000") |
+| Fee_Paid | String | 회비 납부 여부 ("true"/"false", 기본값: "false") |
 
 ### [Sheet 2: Orders]
 | 컬럼 | 타입 | 설명 |
@@ -40,7 +42,7 @@
 | Event_Type | String | 이벤트 유형 |
 | Message | String | 상세 메시지 |
 
-**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE
+**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_RESET_ALL
 
 **보존 기간**: 무기한. 관리자 페이지에서 최근 50건 조회.
 
@@ -62,6 +64,7 @@
 ## 2.4. Streamlit 상태 관리
 - `st.session_state.logged_in`, `st.session_state.user_name`
 - `st.session_state.is_admin`
+- `st.session_state.fee_paid` (회비 납부 여부)
 - `st.session_state.scraped_data` (스크래핑 결과 보존)
 
 ## 2.5. 핵심 기술 구현
@@ -89,5 +92,5 @@ def calculate_monthly_payment(monthly_total_price):
 
 ## 2.6. UI/UX 가이드라인
 - Streamlit 기본 반응형 레이아웃 활용
-- `st.dataframe()` (가로 스크롤), `use_container_width=True`
+- `st.dataframe()` (가로 스크롤), `width="stretch"`
 - 별도 모바일 전용 레이아웃 불필요

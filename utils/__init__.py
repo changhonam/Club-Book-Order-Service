@@ -39,6 +39,15 @@ class OrderRecord:
 
 
 @dataclass
+class MemberRecord:
+    """회원 레코드"""
+
+    name: str
+    pin: str  # 4자리 숫자 문자열
+    fee_paid: bool  # 회비 납부 여부
+
+
+@dataclass
 class ConfigRecord:
     """서비스 설정"""
 

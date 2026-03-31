@@ -15,6 +15,8 @@ def init_session_state():
         st.session_state.is_admin = False
     if "scraped_data" not in st.session_state:
         st.session_state.scraped_data = None
+    if "fee_paid" not in st.session_state:
+        st.session_state.fee_paid = False
 
 
 def render_sidebar():
@@ -26,6 +28,12 @@ def render_sidebar():
             role = "관리자" if st.session_state.is_admin else "회원"
             st.info(f"👤 {st.session_state.user_name} ({role})")
 
+            if not st.session_state.is_admin:
+                if st.session_state.fee_paid:
+                    st.caption("✅ 회비 납부")
+                else:
+                    st.caption("❌ 회비 미납")
+
             config = get_config()
             st.caption(f"📅 접수월: {config.current_order_month}")
             if config.is_closed:
@@ -33,11 +41,12 @@ def render_sidebar():
             else:
                 st.caption("🔓 신청 접수 중")
 
-            if st.button("로그아웃", use_container_width=True):
+            if st.button("로그아웃", width="stretch"):
                 st.session_state.logged_in = False
                 st.session_state.user_name = None
                 st.session_state.is_admin = False
                 st.session_state.scraped_data = None
+                st.session_state.fee_paid = False
                 st.rerun()
         else:
             st.caption("로그인이 필요합니다")

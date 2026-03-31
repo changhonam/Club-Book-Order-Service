@@ -34,11 +34,35 @@ def setup():
 
     # Members 시트
     if "Members" not in existing:
-        ws = ss.add_worksheet(title="Members", rows=100, cols=1)
-        ws.update("A1", [["Name"]])
+        ws = ss.add_worksheet(title="Members", rows=100, cols=3)
+        ws.update(range_name="A1", values=[["Name", "PIN", "Fee_Paid"]])
         print("Members 시트 생성 완료")
     else:
-        print("Members 시트 이미 존재")
+        ws = ss.worksheet("Members")
+        headers = ws.row_values(1)
+        if "PIN" not in headers:
+            # 기존 시트가 1열짜리면 3열로 확장
+            if ws.col_count < 3:
+                ws.resize(cols=3)
+            # 기존 Members 시트 마이그레이션: PIN, Fee_Paid 컬럼 추가
+            ws.update(range_name="B1", values=[["PIN"]])
+            ws.update(range_name="C1", values=[["Fee_Paid"]])
+            names = ws.col_values(1)[1:]  # 헤더 제외
+            if names:
+                # 기존 회원에 기본값 일괄 설정
+                pin_cells = [["0000"] for _ in names]
+                fee_cells = [["false"] for _ in names]
+                ws.update(
+                    range_name=f"B2:B{len(names) + 1}",
+                    values=pin_cells,
+                    value_input_option="RAW",
+                )
+                ws.update(range_name=f"C2:C{len(names) + 1}", values=fee_cells)
+            print(
+                f"Members 시트 마이그레이션 완료 (PIN, Fee_Paid 추가, {len(names)}명)"
+            )
+        else:
+            print("Members 시트 이미 최신 스키마")
 
     # Orders 시트
     if "Orders" not in existing:
