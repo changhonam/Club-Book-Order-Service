@@ -13,10 +13,12 @@ from utils.sheets import (
     add_member,
     add_order,
     append_log,
+    batch_update_fee_paid,
     clear_config_cache,
     clear_member_cache,
     clear_order_cache,
     delete_orders_by_month,
+    find_member,
     get_all_members,
     get_config,
     get_member_names,
@@ -25,7 +27,6 @@ from utils.sheets import (
     remove_member,
     reset_all_fee_paid,
     update_config,
-    update_member_fee_paid,
     update_member_pin,
 )
 
@@ -270,68 +271,112 @@ with tab3:
 # 탭 4: 회비 관리
 # =============================================================================
 with tab4:
-    st.subheader("회비 관리")
 
-    # --- 빠른 납부 체크 ---
-    st.markdown("#### 빠른 납부 체크")
-    st.caption("회원 이름을 입력하고 Enter를 누르면 납부 처리됩니다.")
-    with st.form("fee_check_form", clear_on_submit=True):
-        fee_member_name = st.text_input("회원 이름", key="fee_quick_name")
-        submitted = st.form_submit_button("납부 처리")
-        if submitted:
-            name = fee_member_name.strip()
-            if not name:
-                st.warning("이름을 입력해주세요.")
-            elif name not in get_member_names():
-                st.error(f"'{name}'은(는) 등록되지 않은 회원입니다.")
-            else:
-                if update_member_fee_paid(name, True):
-                    append_log("FEE_PAID", f"회비 납부 처리: {name}")
-                    st.success(f"'{name}' 회원의 회비가 납부 처리되었습니다.")
-                    clear_member_cache()
+    @st.fragment
+    def fee_management_fragment():
+        """회비 관리 프래그먼트 — 납부 처리 시 이 영역만 리런됩니다."""
+        st.subheader("회비 관리")
+
+        # --- 납부 대기 리스트 초기화 ---
+        if "fee_pending_names" not in st.session_state:
+            st.session_state.fee_pending_names = []
+
+        # --- 빠른 납부 체크 (이름 추가) ---
+        st.markdown("#### 빠른 납부 체크")
+        st.caption("회원 이름을 입력하고 Enter → 리스트에 추가 → '일괄 납부 처리' 클릭")
+        with st.form("fee_check_form", clear_on_submit=True):
+            fee_member_name = st.text_input("회원 이름", key="fee_quick_name")
+            submitted = st.form_submit_button("추가")
+            if submitted:
+                name = fee_member_name.strip()
+                if not name:
+                    st.warning("이름을 입력해주세요.")
+                elif name not in get_member_names():
+                    st.error(f"'{name}'은(는) 등록되지 않은 회원입니다.")
+                elif name in st.session_state.fee_pending_names:
+                    st.warning(f"'{name}'은(는) 이미 리스트에 있습니다.")
                 else:
-                    st.error("납부 처리에 실패했습니다.")
+                    member = find_member(name)
+                    if member and member.fee_paid:
+                        st.info(f"'{name}'은(는) 이미 납부 처리된 회원입니다.")
+                    else:
+                        st.session_state.fee_pending_names.append(name)
+                        st.success(f"'{name}' 추가됨")
 
-    st.divider()
+        # --- 납부 대기 리스트 표시 ---
+        pending = st.session_state.fee_pending_names
+        if pending:
+            st.markdown(f"**납부 대기 리스트** ({len(pending)}명)")
+            cols_per_row = 4
+            for i in range(0, len(pending), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j, col in enumerate(cols):
+                    idx = i + j
+                    if idx < len(pending):
+                        with col:
+                            if st.button(
+                                f"❌ {pending[idx]}",
+                                key=f"fee_remove_{idx}",
+                            ):
+                                st.session_state.fee_pending_names.pop(idx)
+                                st.rerun(scope="fragment")
 
-    # --- 납부 현황 ---
-    st.markdown("#### 납부 현황")
-    fee_members = get_all_members()
-    if fee_members:
-        paid_count = sum(1 for m in fee_members if m.fee_paid)
-        unpaid_count = len(fee_members) - paid_count
+            if st.button("일괄 납부 처리", key="btn_batch_fee", type="primary"):
+                names_to_update = list(st.session_state.fee_pending_names)
+                count = batch_update_fee_paid(names_to_update)
+                append_log(
+                    "FEE_PAID_BATCH",
+                    f"일괄 납부 처리: {', '.join(names_to_update)} ({count}명)",
+                )
+                st.success(f"{count}명의 회비가 납부 처리되었습니다.")
+                st.session_state.fee_pending_names = []
+                clear_member_cache()
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("전체 회원", f"{len(fee_members)}명")
-        with col2:
-            st.metric("납부", f"{paid_count}명")
-        with col3:
-            st.metric("미납", f"{unpaid_count}명")
+        st.divider()
 
-        df_fee = pd.DataFrame(
-            {
-                "이름": [m.name for m in fee_members],
-                "납부 상태": ["납부" if m.fee_paid else "미납" for m in fee_members],
-            }
+        # --- 납부 현황 ---
+        st.markdown("#### 납부 현황")
+        fee_members = get_all_members()
+        if fee_members:
+            paid_count = sum(1 for m in fee_members if m.fee_paid)
+            unpaid_count = len(fee_members) - paid_count
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("전체 회원", f"{len(fee_members)}명")
+            with col2:
+                st.metric("납부", f"{paid_count}명")
+            with col3:
+                st.metric("미납", f"{unpaid_count}명")
+
+            df_fee = pd.DataFrame(
+                {
+                    "이름": [m.name for m in fee_members],
+                    "납부 상태": [
+                        "납부" if m.fee_paid else "미납" for m in fee_members
+                    ],
+                }
+            )
+            st.dataframe(df_fee, width="stretch")
+        else:
+            st.info("등록된 회원이 없습니다.")
+
+        st.divider()
+
+        # --- 전체 회비 초기화 ---
+        st.markdown("#### 전체 회비 초기화")
+        st.warning(
+            "모든 회원의 회비 납부 상태를 미납으로 초기화합니다. 이 작업은 되돌릴 수 없습니다."
         )
-        st.dataframe(df_fee, width="stretch")
-    else:
-        st.info("등록된 회원이 없습니다.")
+        if st.button("전체 회비 초기화", key="btn_reset_all_fee"):
+            count = reset_all_fee_paid()
+            append_log("FEE_RESET_ALL", f"전체 회비 초기화: {count}건")
+            st.success(f"전체 회원 {count}명의 회비 상태가 미납으로 초기화되었습니다.")
+            st.session_state.fee_pending_names = []
+            clear_member_cache()
+            st.rerun()
 
-    st.divider()
-
-    # --- 전체 회비 초기화 ---
-    st.markdown("#### 전체 회비 초기화")
-    st.warning(
-        "모든 회원의 회비 납부 상태를 미납으로 초기화합니다. 이 작업은 되돌릴 수 없습니다."
-    )
-    if st.button("전체 회비 초기화", key="btn_reset_all_fee"):
-        count = reset_all_fee_paid()
-        append_log("FEE_RESET_ALL", f"전체 회비 초기화: {count}건")
-        st.success(f"전체 회원 {count}명의 회비 상태가 미납으로 초기화되었습니다.")
-        clear_member_cache()
-        st.rerun()
+    fee_management_fragment()
 
 # =============================================================================
 # 탭 5: 대리 신청

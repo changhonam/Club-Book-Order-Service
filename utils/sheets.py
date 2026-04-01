@@ -1,6 +1,7 @@
 """Google Sheets CRUD 모듈"""
 
 import functools
+import random
 import time
 import uuid
 from datetime import datetime
@@ -21,8 +22,8 @@ SCOPES = [
 # --- 재시도 데코레이터 ---
 
 
-def with_retry(max_retries: int = 2, delay: float = 1.0):
-    """gspread APIError 발생 시 재시도하는 데코레이터."""
+def with_retry(max_retries: int = 3, base_delay: float = 1.0):
+    """gspread APIError 발생 시 지수 백오프로 재시도하는 데코레이터."""
 
     def decorator(func):
         @functools.wraps(func)
@@ -32,8 +33,12 @@ def with_retry(max_retries: int = 2, delay: float = 1.0):
                 try:
                     return func(*args, **kwargs)
                 except gspread.exceptions.APIError as exc:
+                    status = exc.response.status_code
+                    if status in (400, 403):
+                        raise
                     last_exc = exc
                     if attempt < max_retries:
+                        delay = base_delay * (2**attempt) + random.uniform(0, 1)
                         time.sleep(delay)
             raise last_exc
 
@@ -55,8 +60,9 @@ def get_gspread_client() -> gspread.Client:
     return gspread.authorize(creds)
 
 
+@st.cache_resource
 def _get_spreadsheet():
-    """스프레드시트 객체 반환."""
+    """스프레드시트 객체 반환 (캐싱됨)."""
     client = get_gspread_client()
     spreadsheet_name = st.secrets["spreadsheet"]["name"]
     return client.open(spreadsheet_name)
@@ -141,17 +147,38 @@ def update_member_fee_paid(name: str, fee_paid: bool) -> bool:
 
 
 @with_retry()
-def reset_all_fee_paid() -> int:
-    """전체 회원 회비 납부 상태를 미납으로 초기화. 변경 건수 반환."""
+def batch_update_fee_paid(names: list[str]) -> int:
+    """여러 회원의 회비 납부 상태를 일괄 변경. batch_update로 1회 API 호출. 변경 건수 반환."""
+    if not names:
+        return 0
     ws = _get_spreadsheet().worksheet("Members")
     records = ws.get_all_records()
-    count = 0
+    name_set = set(names)
+    batch_data = []
+    for idx, r in enumerate(records):
+        if str(r.get("Name", "")) in name_set:
+            row = idx + 2  # +2: 헤더 + 0-based
+            batch_data.append({"range": f"C{row}", "values": [["true"]]})
+    if batch_data:
+        ws.batch_update(batch_data, value_input_option="RAW")
+    clear_member_cache()
+    return len(batch_data)
+
+
+@with_retry()
+def reset_all_fee_paid() -> int:
+    """전체 회원 회비 납부 상태를 미납으로 초기화. batch_update로 1회 API 호출."""
+    ws = _get_spreadsheet().worksheet("Members")
+    records = ws.get_all_records()
+    batch_data = []
     for idx, r in enumerate(records):
         if str(r.get("Fee_Paid", "false")).lower() == "true":
-            ws.update_cell(idx + 2, 3, "false")  # +2: 헤더 + 0-based
-            count += 1
+            row = idx + 2  # +2: 헤더 + 0-based
+            batch_data.append({"range": f"C{row}", "values": [["false"]]})
+    if batch_data:
+        ws.batch_update(batch_data, value_input_option="RAW")
     clear_member_cache()
-    return count
+    return len(batch_data)
 
 
 # --- Orders ---

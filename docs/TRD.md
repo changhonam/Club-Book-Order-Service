@@ -42,7 +42,7 @@
 | Event_Type | String | 이벤트 유형 |
 | Message | String | 상세 메시지 |
 
-**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_RESET_ALL
+**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_PAID_BATCH, FEE_RESET_ALL
 
 **보존 기간**: 무기한. 관리자 페이지에서 최근 50건 조회.
 
@@ -51,6 +51,7 @@
 **인증**: `st.secrets["gcp_service_account"]`
 
 **캐싱 전략 (함수별 개별 캐싱)**:
+- Spreadsheet 객체: `@st.cache_resource` (반복 `client.open()` 호출 방지)
 - Members: `@st.cache_data(ttl=600)`
 - Orders: `@st.cache_data(ttl=300)`
 - Config: `@st.cache_data(ttl=60)`
@@ -59,7 +60,8 @@
 **동시성 처리**:
 - 추가: `append_row()` 그대로 사용
 - 삭제: Order_ID로 존재 확인 후 삭제
-- API 에러 시 최대 2회 재시도 (1초 간격)
+- 일괄 변경: `worksheet.batch_update()`로 다건 셀 업데이트를 1회 API 호출로 처리
+- API 에러 시 최대 3회 재시도 (지수 백오프 + jitter), 400/403 에러는 즉시 실패
 
 ## 2.4. Streamlit 상태 관리
 - `st.session_state.logged_in`, `st.session_state.user_name`

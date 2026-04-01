@@ -210,9 +210,9 @@ class TestOrders:
 
     def test_get_orders_by_month(self, mock_spreadsheet):
         """월별 주문 조회."""
-        mock_spreadsheet["orders"].get_all_records.return_value = (
-            self._make_order_records()
-        )
+        mock_spreadsheet[
+            "orders"
+        ].get_all_records.return_value = self._make_order_records()
         result = get_orders_by_month("2026-03")
         assert len(result) == 2
         assert all(isinstance(r, OrderRecord) for r in result)
@@ -221,17 +221,17 @@ class TestOrders:
 
     def test_get_orders_by_month_empty(self, mock_spreadsheet):
         """해당 월 주문 없음."""
-        mock_spreadsheet["orders"].get_all_records.return_value = (
-            self._make_order_records()
-        )
+        mock_spreadsheet[
+            "orders"
+        ].get_all_records.return_value = self._make_order_records()
         result = get_orders_by_month("2026-04")
         assert result == []
 
     def test_get_orders_by_member(self, mock_spreadsheet):
         """회원별 주문 조회."""
-        mock_spreadsheet["orders"].get_all_records.return_value = (
-            self._make_order_records()
-        )
+        mock_spreadsheet[
+            "orders"
+        ].get_all_records.return_value = self._make_order_records()
         result = get_orders_by_member("홍길동", "2026-03")
         assert len(result) == 1
         assert result[0].name == "홍길동"
@@ -239,9 +239,10 @@ class TestOrders:
 
     def test_add_order(self, mock_spreadsheet):
         """주문 추가 - UUID 및 타임스탬프 검증."""
-        with patch("utils.sheets.uuid.uuid4") as mock_uuid, patch(
-            "utils.sheets.datetime"
-        ) as mock_dt:
+        with (
+            patch("utils.sheets.uuid.uuid4") as mock_uuid,
+            patch("utils.sheets.datetime") as mock_dt,
+        ):
             mock_uuid.return_value = "test-uuid-1234"
             mock_dt.now.return_value.strftime.return_value = "2026-03-15 10:30:00"
 
@@ -289,9 +290,9 @@ class TestOrders:
 
     def test_delete_orders_by_month(self, mock_spreadsheet):
         """월별 일괄 삭제."""
-        mock_spreadsheet["orders"].get_all_records.return_value = (
-            self._make_order_records()
-        )
+        mock_spreadsheet[
+            "orders"
+        ].get_all_records.return_value = self._make_order_records()
         result = delete_orders_by_month("2026-03")
         assert result == 2
         # 역순으로 삭제 확인 (row 3 먼저, 그 다음 row 2)
@@ -302,9 +303,9 @@ class TestOrders:
 
     def test_delete_orders_by_month_none(self, mock_spreadsheet):
         """삭제할 주문 없음."""
-        mock_spreadsheet["orders"].get_all_records.return_value = (
-            self._make_order_records()
-        )
+        mock_spreadsheet[
+            "orders"
+        ].get_all_records.return_value = self._make_order_records()
         result = delete_orders_by_month("2026-04")
         assert result == 0
 
@@ -322,9 +323,7 @@ class TestConfig:
 
     def test_get_config(self, mock_spreadsheet):
         """설정 조회 - 문자열 -> 타입 변환 검증."""
-        mock_spreadsheet["config"].get_all_records.return_value = (
-            self._config_records()
-        )
+        mock_spreadsheet["config"].get_all_records.return_value = self._config_records()
         result = get_config()
         assert isinstance(result, ConfigRecord)
         assert result.current_order_month == "2026-03"
@@ -343,17 +342,13 @@ class TestConfig:
 
     def test_update_config_partial(self, mock_spreadsheet):
         """부분 업데이트 - is_closed만 변경."""
-        mock_spreadsheet["config"].get_all_records.return_value = (
-            self._config_records()
-        )
+        mock_spreadsheet["config"].get_all_records.return_value = self._config_records()
         update_config(is_closed=True)
         mock_spreadsheet["config"].update_cell.assert_called_once_with(3, 2, "true")
 
     def test_update_config_multiple(self, mock_spreadsheet):
         """복수 필드 업데이트."""
-        mock_spreadsheet["config"].get_all_records.return_value = (
-            self._config_records()
-        )
+        mock_spreadsheet["config"].get_all_records.return_value = self._config_records()
         update_config(current_order_month="2026-04", is_closed=False)
         calls = mock_spreadsheet["config"].update_cell.call_args_list
         assert len(calls) == 2
@@ -429,7 +424,7 @@ class TestWithRetry:
         """첫 시도 실패 -> 재시도 성공."""
         call_count = 0
 
-        @with_retry(max_retries=2, delay=0)
+        @with_retry(max_retries=2, base_delay=0)
         def flaky_func():
             nonlocal call_count
             call_count += 1
@@ -444,7 +439,7 @@ class TestWithRetry:
     def test_retry_all_fail(self):
         """모든 재시도 실패 -> 예외 발생."""
 
-        @with_retry(max_retries=2, delay=0)
+        @with_retry(max_retries=2, base_delay=0)
         def always_fail():
             raise self._make_api_error(500)
 
@@ -455,7 +450,7 @@ class TestWithRetry:
         """성공 시 재시도 없음."""
         call_count = 0
 
-        @with_retry(max_retries=2, delay=0)
+        @with_retry(max_retries=2, base_delay=0)
         def good_func():
             nonlocal call_count
             call_count += 1

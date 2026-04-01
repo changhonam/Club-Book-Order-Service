@@ -357,11 +357,11 @@ class TestResetAllFeePaid:
         result = reset_all_fee_paid()
         # 홍길동(true), 이영희(true) -> 2건 변경
         assert result == 2
-        calls = mock_spreadsheet["members"].update_cell.call_args_list
-        assert len(calls) == 2
-        # idx=0 -> row 2 (헤더+1), idx=2 -> row 4
-        assert calls[0][0] == (2, 3, "false")
-        assert calls[1][0] == (4, 3, "false")
+        mock_spreadsheet["members"].batch_update.assert_called_once()
+        batch_data = mock_spreadsheet["members"].batch_update.call_args[0][0]
+        assert len(batch_data) == 2
+        assert batch_data[0] == {"range": "C2", "values": [["false"]]}
+        assert batch_data[1] == {"range": "C4", "values": [["false"]]}
 
     def test_no_changes_needed(self, mock_spreadsheet):
         """모두 이미 false -> 0건 반환."""
@@ -371,7 +371,7 @@ class TestResetAllFeePaid:
         ]
         result = reset_all_fee_paid()
         assert result == 0
-        mock_spreadsheet["members"].update_cell.assert_not_called()
+        mock_spreadsheet["members"].batch_update.assert_not_called()
 
     def test_all_true(self, mock_spreadsheet):
         """모두 true -> 전체 변경."""
