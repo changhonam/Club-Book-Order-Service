@@ -21,6 +21,7 @@ from utils.sheets import (
     find_member,
     get_all_members,
     get_config,
+    get_existing_order_months,
     get_member_names,
     get_orders_by_month,
     get_recent_logs,
