@@ -47,6 +47,8 @@ from utils import ConfigRecord, OrderRecord  # noqa: E402
 # google.oauth2.service_account.Credentials mock (utils.sheets에서 사용)
 _real_google = sys.modules.get("google")
 
+import utils.sheets as _sheets_mod  # noqa: E402
+
 from utils.sheets import (  # noqa: E402
     add_member,
     add_order,
@@ -59,6 +61,7 @@ from utils.sheets import (  # noqa: E402
     find_member,
     get_all_members,
     get_config,
+    get_existing_order_months,
     get_orders_by_member,
     get_orders_by_month,
     get_recent_logs,
@@ -66,6 +69,9 @@ from utils.sheets import (  # noqa: E402
     update_config,
     with_retry,
 )
+
+# _get_all_orders_raw 참조 (private이라 ruff가 직접 import를 제거하므로 모듈 경유)
+_get_all_orders_raw = _sheets_mod._get_all_orders_raw
 
 
 # --- Fixtures ---
@@ -309,6 +315,20 @@ class TestOrders:
         result = delete_orders_by_month("2026-04")
         assert result == 0
 
+    def test_get_existing_order_months(self, mock_spreadsheet):
+        """주문이 존재하는 월 집합 반환."""
+        mock_spreadsheet[
+            "orders"
+        ].get_all_records.return_value = self._make_order_records()
+        result = get_existing_order_months()
+        assert result == {"2026-03", "2026-02"}
+
+    def test_get_existing_order_months_empty(self, mock_spreadsheet):
+        """주문 없을 때 빈 집합."""
+        mock_spreadsheet["orders"].get_all_records.return_value = []
+        result = get_existing_order_months()
+        assert result == set()
+
 
 # --- Config 테스트 ---
 
@@ -473,8 +493,10 @@ class TestCacheHelpers:
 
     def test_clear_order_cache(self):
         """주문 캐시 클리어."""
+        _get_all_orders_raw.clear = MagicMock()
         get_orders_by_month.clear = MagicMock()
         clear_order_cache()
+        _get_all_orders_raw.clear.assert_called_once()
         get_orders_by_month.clear.assert_called_once()
 
     def test_clear_config_cache(self):

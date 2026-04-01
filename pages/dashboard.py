@@ -13,6 +13,7 @@ from utils.sheets import (
     delete_order,
     find_member,
     get_config,
+    get_existing_order_months,
     get_orders_by_member,
 )
 
@@ -35,27 +36,34 @@ current_month = config.current_order_month
 is_closed = config.is_closed
 
 # --- 월 선택 ---
+existing_months = get_existing_order_months()
+
 now = datetime.now()
-months: list[str] = []
+window_months: set[str] = set()
 for i in range(12):
-    # 현재월부터 과거 11개월
     year = now.year
     month = now.month - i
     while month <= 0:
         month += 12
         year -= 1
-    months.append(f"{year:04d}-{month:02d}")
+    window_months.add(f"{year:04d}-{month:02d}")
 
-# current_month가 목록에 없으면 맨 앞에 추가
+# 12개월 윈도우 내에서 데이터가 있는 월만 필터 (최신순 정렬)
+months: list[str] = sorted(existing_months & window_months, reverse=True)
+
+# current_order_month는 항상 포함 (데이터 없어도 표시)
 if current_month and current_month not in months:
     months.insert(0, current_month)
 
-default_index = months.index(current_month) if current_month in months else 0
+# current_month를 맨 앞으로
+if current_month in months and months[0] != current_month:
+    months.remove(current_month)
+    months.insert(0, current_month)
 
 selected_month = st.selectbox(
     "조회 월",
     options=months,
-    index=default_index,
+    index=0,
 )
 
 is_current_month = selected_month == current_month

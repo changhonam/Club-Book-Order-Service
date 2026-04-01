@@ -185,10 +185,16 @@ def reset_all_fee_paid() -> int:
 
 
 @st.cache_data(ttl=300)
+def _get_all_orders_raw() -> list[dict]:
+    """전체 주문 원본 레코드. TTL=300초 캐싱."""
+    ws = _get_spreadsheet().worksheet("Orders")
+    return ws.get_all_records()
+
+
+@st.cache_data(ttl=300)
 def get_orders_by_month(month: str) -> list[OrderRecord]:
     """특정 월의 전체 주문 목록. TTL=300초 캐싱."""
-    ws = _get_spreadsheet().worksheet("Orders")
-    records = ws.get_all_records()
+    records = _get_all_orders_raw()
     result = []
     for r in records:
         if r.get("Order_Month") == month:
@@ -211,6 +217,14 @@ def get_orders_by_member(name: str, month: str) -> list[OrderRecord]:
     """특정 회원의 특정 월 주문 목록."""
     orders = get_orders_by_month(month)
     return [o for o in orders if o.name == name]
+
+
+def get_existing_order_months() -> set[str]:
+    """주문이 존재하는 월 집합 반환."""
+    records = _get_all_orders_raw()
+    months = {str(r.get("Order_Month", "")) for r in records}
+    months.discard("")
+    return months
 
 
 @with_retry()
@@ -356,6 +370,7 @@ def clear_member_cache() -> None:
 
 def clear_order_cache() -> None:
     """Orders 캐시 초기화."""
+    _get_all_orders_raw.clear()
     get_orders_by_month.clear()
 
 

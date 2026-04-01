@@ -55,7 +55,8 @@
 - Members: `@st.cache_data(ttl=600)`
 - Orders: `@st.cache_data(ttl=300)`
 - Config: `@st.cache_data(ttl=60)`
-- 변경 시 해당 함수 캐시만 선택적 초기화 (`load_orders.clear()` 등)
+- 변경 시 해당 함수 캐시만 선택적 초기화 (`get_orders_by_month.clear()` 등)
+- Orders 원본 조회(`_get_all_orders_raw`)를 별도 캐싱하여 월별/월 목록 조회 시 API 호출 공유
 
 **동시성 처리**:
 - 추가: `append_row()` 그대로 사용
