@@ -84,6 +84,12 @@ col1.metric("총 신청금액", f"{settlement.total_price:,}원")
 col2.metric("동호회 지원금", f"{settlement.club_support:,}원")
 col3.metric("본인 부담금", f"{settlement.user_payment:,}원")
 
+if settlement.user_payment > 0:
+    st.info(
+        "도서를 모두 담으셨다면 아래 계좌로 **본인 부담금**을 입금해주세요.\n\n"
+        "🏦 **하나은행 120-910310-76207 남창호**"
+    )
+
 st.divider()
 
 # --- 내 신청 목록 ---
