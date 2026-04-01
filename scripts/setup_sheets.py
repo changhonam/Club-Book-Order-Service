@@ -133,6 +133,16 @@ def setup():
     else:
         print("Config 시트 이미 존재")
 
+    # Payments 시트
+    if "Payments" not in existing:
+        ws = ss.add_worksheet(title="Payments", rows=500, cols=4)
+        ws.update(
+            range_name="A1", values=[["Name", "Order_Month", "Is_Paid", "Paid_At"]]
+        )
+        print("Payments 시트 생성 완료")
+    else:
+        print("Payments 시트 이미 존재")
+
     # Logs 시트
     if "Logs" not in existing:
         ws = ss.add_worksheet(title="Logs", rows=1000, cols=3)

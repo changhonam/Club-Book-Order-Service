@@ -7,7 +7,7 @@
 
 ## 2.2. 데이터베이스 스키마 (Google Sheets 구조)
 
-스프레드시트 파일 내에 4개의 시트(Sheet)를 운영한다.
+스프레드시트 파일 내에 5개의 시트(Sheet)를 운영한다.
 
 ### [Sheet 1: Members]
 | 컬럼 | 타입 | 설명 |
@@ -37,14 +37,22 @@
 | is_closed | "false" | 신청 마감 여부 ("true"/"false") |
 | auto_close_datetime | "" | 자동 마감 예약 일시 (YYYY-MM-DD HH:MM 또는 빈 값) |
 
-### [Sheet 4: Logs]
+### [Sheet 4: Payments]
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| Name | String | 회원 이름 |
+| Order_Month | String | 주문 월 (YYYY-MM) |
+| Is_Paid | String | 입금 완료 여부 ("true"/"false") |
+| Paid_At | String | 입금 완료 처리 일시 (YYYY-MM-DD HH:MM:SS, 미입금 시 빈 값) |
+
+### [Sheet 5: Logs]
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | Timestamp | String | YYYY-MM-DD HH:MM:SS |
 | Event_Type | String | 이벤트 유형 |
 | Message | String | 상세 메시지 |
 
-**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_PAID_BATCH, FEE_RESET_ALL
+**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_PAID_BATCH, FEE_RESET_ALL, PAYMENT_DONE
 
 **보존 기간**: 무기한. 관리자 페이지에서 최근 50건 조회.
 
@@ -56,6 +64,7 @@
 - Spreadsheet 객체: `@st.cache_resource` (반복 `client.open()` 호출 방지)
 - Members: `@st.cache_data(ttl=600)`
 - Orders: `@st.cache_data(ttl=300)`
+- Payments: `@st.cache_data(ttl=300)`
 - Config: `@st.cache_data(ttl=60)`
 - 변경 시 해당 함수 캐시만 선택적 초기화 (`get_orders_by_month.clear()` 등)
 - Orders 원본 조회(`_get_all_orders_raw`)를 별도 캐싱하여 월별/월 목록 조회 시 API 호출 공유

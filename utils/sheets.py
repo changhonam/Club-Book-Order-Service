@@ -11,7 +11,7 @@ import gspread
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-from utils import ConfigRecord, MemberRecord, OrderRecord
+from utils import ConfigRecord, MemberRecord, OrderRecord, PaymentRecord
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -411,3 +411,67 @@ def clear_order_cache() -> None:
 def clear_config_cache() -> None:
     """Config 캐시 초기화."""
     get_config.clear()
+
+
+# --- Payments ---
+
+
+@st.cache_data(ttl=300)
+def get_payment_status(name: str, month: str) -> bool:
+    """회원의 특정 월 입금 완료 여부 반환. TTL=300초 캐싱."""
+    ws = _get_spreadsheet().worksheet("Payments")
+    records = ws.get_all_records()
+    for r in records:
+        if str(r.get("Name", "")) == name and str(r.get("Order_Month", "")) == month:
+            return str(r.get("Is_Paid", "false")).lower() == "true"
+    return False
+
+
+@st.cache_data(ttl=300)
+def get_all_payments_by_month(month: str) -> dict[str, PaymentRecord]:
+    """특정 월의 전체 입금 상태 반환. 회원 이름을 키로 하는 dict."""
+    ws = _get_spreadsheet().worksheet("Payments")
+    records = ws.get_all_records()
+    result = {}
+    for r in records:
+        if str(r.get("Order_Month", "")) == month:
+            name = str(r.get("Name", ""))
+            result[name] = PaymentRecord(
+                name=name,
+                order_month=month,
+                is_paid=str(r.get("Is_Paid", "false")).lower() == "true",
+                paid_at=str(r.get("Paid_At", "")),
+            )
+    return result
+
+
+@with_retry()
+def set_payment_status(name: str, month: str, is_paid: bool) -> bool:
+    """입금 상태 설정. 기존 행이 있으면 업데이트, 없으면 신규 추가."""
+    ws = _get_spreadsheet().worksheet("Payments")
+    records = ws.get_all_records()
+    paid_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_paid else ""
+
+    for idx, r in enumerate(records):
+        if str(r.get("Name", "")) == name and str(r.get("Order_Month", "")) == month:
+            row = idx + 2  # 헤더 + 0-based
+            ws.batch_update(
+                [
+                    {"range": f"C{row}", "values": [["true" if is_paid else "false"]]},
+                    {"range": f"D{row}", "values": [[paid_at]]},
+                ],
+                value_input_option="RAW",
+            )
+            clear_payment_cache()
+            return True
+
+    if is_paid:
+        ws.append_row([name, month, "true", paid_at], value_input_option="RAW")
+    clear_payment_cache()
+    return True
+
+
+def clear_payment_cache() -> None:
+    """Payments 캐시 초기화."""
+    get_payment_status.clear()
+    get_all_payments_by_month.clear()

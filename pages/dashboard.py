@@ -10,11 +10,14 @@ from utils.sheets import (
     add_order,
     append_log,
     clear_order_cache,
+    clear_payment_cache,
     delete_order,
     find_member,
     get_config,
     get_existing_order_months,
     get_orders_by_member,
+    get_payment_status,
+    set_payment_status,
 )
 
 # --- 인증 가드 ---
@@ -85,10 +88,38 @@ col2.metric("동호회 지원금", f"{settlement.club_support:,}원")
 col3.metric("본인 부담금", f"{settlement.user_payment:,}원")
 
 if settlement.user_payment > 0:
+    is_paid = get_payment_status(user_name, selected_month)
     st.info(
         "도서를 모두 담으셨다면 아래 계좌로 **본인 부담금**을 입금해주세요.\n\n"
-        "🏦 **하나은행 120-910310-76207 남창호**"
+        "🏦 **하나은행 120-910310-76207 남창호**\n\n"
+        "입금을 완료하셨다면 아래 **입금 완료** 버튼을 눌러주세요."
     )
+    btn_color = "#28a745" if is_paid else "#dc3545"
+    st.markdown(
+        f"<style>"
+        f"button[kind='primary'] {{"
+        f"background-color: {btn_color} !important; "
+        f"border-color: {btn_color} !important;"
+        f"}}</style>",
+        unsafe_allow_html=True,
+    )
+    if is_paid:
+        if st.button("입금 완료 함", key="btn_payment_done", type="primary"):
+            set_payment_status(user_name, selected_month, False)
+            append_log(
+                "PAYMENT_CANCEL",
+                f"{user_name} {selected_month} 입금 완료 취소",
+            )
+            clear_payment_cache()
+            st.rerun()
+    elif st.button("입금 완료", key="btn_payment_done", type="primary"):
+        set_payment_status(user_name, selected_month, True)
+        append_log(
+            "PAYMENT_DONE",
+            f"{user_name} {selected_month} 입금 완료 처리",
+        )
+        clear_payment_cache()
+        st.rerun()
 
 st.divider()
 

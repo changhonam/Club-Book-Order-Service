@@ -5,7 +5,7 @@
 ## 주요 기능
 
 - **도서 신청**: Yes24 URL 입력만으로 도서 정보 자동 조회 및 신청
-- **자동 정산**: 동호회 지원금(최대 30,000원) 자동 계산, 본인 부담금 확인
+- **자동 정산**: 동호회 지원금(최대 30,000원) 자동 계산, 본인 부담금 확인 및 입금 완료 처리
 - **관리자 기능**: 회원 관리, 회비 관리, 신청 현황 조회, 대리 신청, Excel 내보내기
 - **자동 마감**: 지정 일시에 자동으로 신청 마감
 
@@ -84,13 +84,14 @@ password = "관리자 비밀번호"
 python scripts/setup_sheets.py
 ```
 
-이 스크립트는 다음 4개 워크시트를 생성합니다:
+이 스크립트는 다음 5개 워크시트를 생성합니다:
 
 | 워크시트 | 헤더 | 설명 |
 |----------|------|------|
 | Members | `Name`, `PIN`, `Fee_Paid` | 회원 명부 (PIN: 4자리, Fee_Paid: 회비 납부 여부) |
 | Orders | `Order_ID`, `Order_Month`, `Name`, `Book_URL`, `Title`, `Author`, `Price`, `Created_At`, `Publisher`, `ISBN` | 주문 내역 |
 | Config | `Key`, `Value` | 서비스 설정 (접수월, 마감 여부, 자동마감 일시) |
+| Payments | `Name`, `Order_Month`, `Is_Paid`, `Paid_At` | 본인 부담금 입금 상태 |
 | Logs | `Timestamp`, `Event_Type`, `Message` | 이벤트 로그 |
 
 ### 5. 앱 실행
@@ -111,7 +112,7 @@ streamlit run app.py
 │   ├── dashboard.py            # 도서 구매 신청 및 정산 조회
 │   └── admin.py                # 관리자 (회원/주문/회비 관리, 대리 신청, Excel 내보내기)
 ├── utils/
-│   ├── __init__.py             # 데이터 모델 (BookInfo, Settlement, OrderRecord, MemberRecord, ConfigRecord)
+│   ├── __init__.py             # 데이터 모델 (BookInfo, Settlement, OrderRecord, MemberRecord, PaymentRecord, ConfigRecord)
 │   ├── sheets.py               # Google Sheets CRUD (캐싱, 재시도 포함)
 │   ├── scraper.py              # Yes24 도서 정보 스크래핑
 │   ├── settlement.py           # 정산 로직 (지원금 계산, 주문별 배분)

@@ -20,6 +20,7 @@ from utils.sheets import (
     delete_orders_by_month,
     find_member,
     get_all_members,
+    get_all_payments_by_month,
     get_config,
     get_existing_order_months,
     get_member_names,
@@ -174,6 +175,10 @@ with tab2:
             df_orders.groupby("신청자")
             .agg(주문수=("제목", "count"), 총액=("가격", "sum"))
             .reset_index()
+        )
+        payments = get_all_payments_by_month(selected_month)
+        summary["입금"] = summary["신청자"].apply(
+            lambda n: "완료" if payments.get(n) and payments[n].is_paid else "대기"
         )
         st.dataframe(summary, width="stretch")
 

@@ -51,6 +51,16 @@ class MemberRecord:
 
 
 @dataclass
+class PaymentRecord:
+    """입금 상태 레코드 (회원+월 단위)"""
+
+    name: str  # 회원 이름
+    order_month: str  # "YYYY-MM"
+    is_paid: bool  # 입금 완료 여부
+    paid_at: str = ""  # "YYYY-MM-DD HH:MM:SS"
+
+
+@dataclass
 class ConfigRecord:
     """서비스 설정"""
 
