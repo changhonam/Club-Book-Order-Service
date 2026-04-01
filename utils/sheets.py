@@ -111,6 +111,21 @@ def add_member(name: str) -> bool:
 
 
 @with_retry()
+def batch_add_members(names: list[str]) -> list[str]:
+    """여러 회원을 일괄 추가. 이미 존재하는 회원은 건너뜀. 실제 추가된 이름 리스트 반환."""
+    if not names:
+        return []
+    existing = {m.name for m in get_all_members()}
+    new_names = [n for n in names if n not in existing]
+    if new_names:
+        ws = _get_spreadsheet().worksheet("Members")
+        rows = [[n, "0000", "false"] for n in new_names]
+        ws.append_rows(rows, value_input_option="RAW")
+        clear_member_cache()
+    return new_names
+
+
+@with_retry()
 def remove_member(name: str) -> bool:
     """회원 삭제. 존재하지 않으면 False 반환. Orders 데이터는 보존."""
     ws = _get_spreadsheet().worksheet("Members")

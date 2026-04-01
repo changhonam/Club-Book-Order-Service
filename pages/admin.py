@@ -10,9 +10,9 @@ import streamlit as st
 from utils.scraper import ScrapingError, scrape_book_info
 from utils.settlement import calculate_monthly_payment
 from utils.sheets import (
-    add_member,
     add_order,
     append_log,
+    batch_add_members,
     batch_update_fee_paid,
     clear_config_cache,
     clear_member_cache,
@@ -126,9 +126,26 @@ with tab1:
 with tab2:
     st.subheader("신청 현황")
 
-    selected_month = st.text_input(
-        "조회 월 (YYYY-MM)",
-        value=config.current_order_month,
+    existing_months = get_existing_order_months()
+    now = datetime.now()
+    window_months: set[str] = set()
+    for i in range(12):
+        year = now.year
+        month = now.month - i
+        while month <= 0:
+            month += 12
+            year -= 1
+        window_months.add(f"{year:04d}-{month:02d}")
+    months: list[str] = sorted(existing_months & window_months, reverse=True)
+    if config.current_order_month and config.current_order_month not in months:
+        months.insert(0, config.current_order_month)
+    if config.current_order_month in months and months[0] != config.current_order_month:
+        months.remove(config.current_order_month)
+        months.insert(0, config.current_order_month)
+    selected_month = st.selectbox(
+        "조회 월",
+        options=months,
+        index=0,
         key="admin_view_month",
     )
 
@@ -234,19 +251,58 @@ with tab3:
 
     # --- 회원 추가 ---
     st.markdown("#### 회원 추가")
-    new_member_name = st.text_input("새 회원 이름", key="admin_new_member")
-    if st.button("추가", key="btn_add_member"):
-        if not new_member_name.strip():
-            st.warning("이름을 입력해주세요.")
-        else:
+    st.caption("회원 이름을 입력하고 Enter → 리스트에 추가 → '일괄 추가' 클릭")
+
+    if "member_pending_names" not in st.session_state:
+        st.session_state.member_pending_names = []
+
+    with st.form("member_add_form", clear_on_submit=True):
+        new_member_name = st.text_input("새 회원 이름", key="admin_new_member")
+        submitted = st.form_submit_button("추가")
+        if submitted:
             name = new_member_name.strip()
-            if add_member(name):
-                append_log("MEMBER_ADD", f"회원 추가: {name}")
-                st.success(f"'{name}' 회원이 추가되었습니다.")
-                clear_member_cache()
-                st.rerun()
-            else:
+            if not name:
+                st.warning("이름을 입력해주세요.")
+            elif name in get_member_names():
                 st.error(f"'{name}'은(는) 이미 등록된 회원입니다.")
+            elif name in st.session_state.member_pending_names:
+                st.warning(f"'{name}'은(는) 이미 리스트에 있습니다.")
+            else:
+                st.session_state.member_pending_names.append(name)
+                st.success(f"'{name}' 추가됨")
+
+    pending = st.session_state.member_pending_names
+    if pending:
+        st.markdown(f"**추가 대기 리스트** ({len(pending)}명)")
+        cols_per_row = 4
+        for i in range(0, len(pending), cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j, col in enumerate(cols):
+                idx = i + j
+                if idx < len(pending):
+                    with col:
+                        if st.button(
+                            f"❌ {pending[idx]}",
+                            key=f"member_remove_{idx}",
+                        ):
+                            st.session_state.member_pending_names.pop(idx)
+                            st.rerun()
+
+        if st.button("일괄 추가", key="btn_batch_add_member", type="primary"):
+            names_to_add = list(st.session_state.member_pending_names)
+            added = batch_add_members(names_to_add)
+            if added:
+                append_log(
+                    "MEMBER_ADD_BATCH",
+                    f"일괄 회원 추가: {', '.join(added)} ({len(added)}명)",
+                )
+                st.success(f"{len(added)}명의 회원이 추가되었습니다.")
+            skipped = set(names_to_add) - set(added)
+            if skipped:
+                st.warning(f"이미 등록된 회원 건너뜀: {', '.join(skipped)}")
+            st.session_state.member_pending_names = []
+            clear_member_cache()
+            st.rerun()
 
     st.divider()
 
