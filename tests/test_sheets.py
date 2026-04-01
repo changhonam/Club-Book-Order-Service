@@ -191,6 +191,8 @@ class TestOrders:
                 "Author": "저자A",
                 "Price": 30000,
                 "Created_At": "2026-03-10 09:00:00",
+                "Publisher": "출판사A",
+                "ISBN": "9788966260001",
             },
             {
                 "Order_ID": "id-2",
@@ -201,6 +203,8 @@ class TestOrders:
                 "Author": "저자B",
                 "Price": 20000,
                 "Created_At": "2026-03-11 14:00:00",
+                "Publisher": "출판사B",
+                "ISBN": "9788966260002",
             },
             {
                 "Order_ID": "id-3",
@@ -211,6 +215,8 @@ class TestOrders:
                 "Author": "저자C",
                 "Price": 15000,
                 "Created_At": "2026-02-10 09:00:00",
+                "Publisher": "출판사C",
+                "ISBN": "9788966260003",
             },
         ]
 
@@ -223,6 +229,8 @@ class TestOrders:
         assert len(result) == 2
         assert all(isinstance(r, OrderRecord) for r in result)
         assert result[0].order_id == "id-1"
+        assert result[0].publisher == "출판사A"
+        assert result[0].isbn == "9788966260001"
         assert result[1].order_id == "id-2"
 
     def test_get_orders_by_month_empty(self, mock_spreadsheet):
@@ -259,6 +267,8 @@ class TestOrders:
                 title="테스트 도서",
                 author="테스트 저자",
                 price=15000,
+                publisher="테스트출판사",
+                isbn="9788966260959",
             )
 
         assert isinstance(result, OrderRecord)
@@ -266,6 +276,8 @@ class TestOrders:
         assert result.created_at == "2026-03-15 10:30:00"
         assert result.name == "홍길동"
         assert result.price == 15000
+        assert result.publisher == "테스트출판사"
+        assert result.isbn == "9788966260959"
         mock_spreadsheet["orders"].append_row.assert_called_once_with(
             [
                 "test-uuid-1234",
@@ -274,6 +286,8 @@ class TestOrders:
                 "https://www.yes24.com/Product/Goods/12345678",
                 "테스트 도서",
                 "테스트 저자",
+                "테스트출판사",
+                "9788966260959",
                 15000,
                 "2026-03-15 10:30:00",
             ]
@@ -314,6 +328,26 @@ class TestOrders:
         ].get_all_records.return_value = self._make_order_records()
         result = delete_orders_by_month("2026-04")
         assert result == 0
+
+    def test_get_orders_by_month_backward_compat(self, mock_spreadsheet):
+        """Publisher/ISBN 컬럼 없는 기존 데이터 하위호환."""
+        old_records = [
+            {
+                "Order_ID": "id-old",
+                "Order_Month": "2026-01",
+                "Name": "홍길동",
+                "Book_URL": "https://www.yes24.com/Product/Goods/99999999",
+                "Title": "구버전 도서",
+                "Author": "저자X",
+                "Price": 10000,
+                "Created_At": "2026-01-01 00:00:00",
+            },
+        ]
+        mock_spreadsheet["orders"].get_all_records.return_value = old_records
+        result = get_orders_by_month("2026-01")
+        assert len(result) == 1
+        assert result[0].publisher == ""
+        assert result[0].isbn == ""
 
     def test_get_existing_order_months(self, mock_spreadsheet):
         """주문이 존재하는 월 집합 반환."""

@@ -94,8 +94,9 @@ if my_orders:
         with st.container():
             c1, c2 = st.columns([4, 1])
             with c1:
+                publisher_text = f" | {order.publisher}" if order.publisher else ""
                 st.markdown(
-                    f"**{order.title}** — {order.author}  \n"
+                    f"**{order.title}** — {order.author}{publisher_text}  \n"
                     f"판매가 {order.price:,}원 | "
                     f"신청일 {order.created_at}"
                 )
@@ -164,6 +165,8 @@ else:
                 title=scraped.title,
                 author=scraped.author,
                 price=scraped.price,
+                publisher=scraped.publisher,
+                isbn=scraped.isbn,
             )
             append_log(
                 "ORDER_CREATE",

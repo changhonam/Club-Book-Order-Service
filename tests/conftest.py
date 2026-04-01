@@ -15,6 +15,7 @@ def sample_book_info():
         url="https://www.yes24.com/Product/Goods/12345678",
         is_available=True,
         unavailable_reason=None,
+        isbn="9788966260959",
     )
 
 
@@ -29,6 +30,8 @@ def sample_order():
         author="홍길동",
         price=15000,
         created_at="2026-03-15 10:30:00",
+        publisher="테스트출판사",
+        isbn="9788966260959",
     )
 
 
@@ -54,6 +57,8 @@ def sample_orders_for_settlement():
             author="저자A",
             price=30000,
             created_at="2026-03-10 09:00:00",
+            publisher="출판사A",
+            isbn="9788966260001",
         ),
         OrderRecord(
             order_id="id-2",
@@ -64,5 +69,7 @@ def sample_orders_for_settlement():
             author="저자B",
             price=40000,
             created_at="2026-03-11 14:00:00",
+            publisher="출판사B",
+            isbn="9788966260002",
         ),
     ]

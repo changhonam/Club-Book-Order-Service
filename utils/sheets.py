@@ -208,6 +208,8 @@ def get_orders_by_month(month: str) -> list[OrderRecord]:
                     author=str(r["Author"]),
                     price=int(r["Price"]),
                     created_at=str(r["Created_At"]),
+                    publisher=str(r.get("Publisher", "")),
+                    isbn=str(r.get("ISBN", "")),
                 )
             )
     return result
@@ -235,12 +237,27 @@ def add_order(
     title: str,
     author: str,
     price: int,
+    publisher: str = "",
+    isbn: str = "",
 ) -> OrderRecord:
     """주문 추가. order_id는 UUID4 자동 생성."""
     order_id = str(uuid.uuid4())
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     ws = _get_spreadsheet().worksheet("Orders")
-    ws.append_row([order_id, month, name, book_url, title, author, price, created_at])
+    ws.append_row(
+        [
+            order_id,
+            month,
+            name,
+            book_url,
+            title,
+            author,
+            publisher,
+            isbn,
+            price,
+            created_at,
+        ]
+    )
     clear_order_cache()
     return OrderRecord(
         order_id=order_id,
@@ -251,6 +268,8 @@ def add_order(
         author=author,
         price=price,
         created_at=created_at,
+        publisher=publisher,
+        isbn=isbn,
     )
 
 

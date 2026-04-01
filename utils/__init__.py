@@ -13,6 +13,7 @@ class BookInfo:
     url: str  # 정규화된 www.yes24.com URL
     is_available: bool  # 구매 가능 여부
     unavailable_reason: Optional[str] = None  # "품절", "절판", "eBook" 등
+    isbn: str = ""  # ISBN-13 (스크래핑 실패 시 빈 문자열)
 
 
 @dataclass
@@ -36,6 +37,8 @@ class OrderRecord:
     author: str
     price: int
     created_at: str  # "YYYY-MM-DD HH:MM:SS"
+    publisher: str = ""  # 출판사
+    isbn: str = ""  # ISBN-13
 
 
 @dataclass

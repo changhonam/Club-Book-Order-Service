@@ -119,6 +119,43 @@ def _extract_sale_price(soup: BeautifulSoup) -> int:
 
 
 # ---------------------------------------------------------------------------
+# ISBN 추출
+# ---------------------------------------------------------------------------
+_RE_ISBN13 = re.compile(r"97[89]\d{10}")
+
+
+def _extract_isbn(soup: BeautifulSoup) -> str:
+    """ISBN-13을 추출한다. 찾지 못하면 빈 문자열 반환."""
+    import json
+
+    # 1순위: JSON-LD 구조화 데이터
+    for script in soup.select('script[type="application/ld+json"]'):
+        try:
+            data = json.loads(script.string or "")
+            # 단일 객체 또는 리스트
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                isbn = item.get("isbn", "")
+                if isbn and _RE_ISBN13.match(isbn):
+                    return isbn
+        except (json.JSONDecodeError, AttributeError):
+            continue
+
+    # 2순위: #infoset_specific 테이블에서 ISBN13 행
+    info_section = soup.select_one("#infoset_specific")
+    if info_section:
+        for row in info_section.select("tr"):
+            cells = row.select("td, th")
+            if len(cells) >= 2 and "ISBN13" in cells[0].get_text():
+                isbn_text = cells[1].get_text(strip=True)
+                match = _RE_ISBN13.search(isbn_text)
+                if match:
+                    return match.group()
+
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # 구매 가능 여부 판별
 # ---------------------------------------------------------------------------
 def _check_availability(soup: BeautifulSoup, url: str) -> tuple[bool, str | None]:
@@ -224,6 +261,9 @@ def scrape_book_info(url: str) -> BookInfo:
     # 가격 추출
     price = _extract_sale_price(soup)
 
+    # ISBN 추출 (실패해도 에러 발생하지 않음)
+    isbn = _extract_isbn(soup)
+
     # 구매 가능 여부 판별
     is_available, unavailable_reason = _check_availability(soup, normalized_url)
 
@@ -235,4 +275,5 @@ def scrape_book_info(url: str) -> BookInfo:
         url=normalized_url,
         is_available=is_available,
         unavailable_reason=unavailable_reason,
+        isbn=isbn,
     )

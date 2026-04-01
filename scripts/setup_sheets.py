@@ -65,33 +65,64 @@ def setup():
             print("Members 시트 이미 최신 스키마")
 
     # Orders 시트
+    # 목표 헤더 순서: Order_ID, Order_Month, Name, Book_URL, Title, Author, Publisher, ISBN, Price, Created_At
+    target_headers = [
+        "Order_ID",
+        "Order_Month",
+        "Name",
+        "Book_URL",
+        "Title",
+        "Author",
+        "Publisher",
+        "ISBN",
+        "Price",
+        "Created_At",
+    ]
     if "Orders" not in existing:
-        ws = ss.add_worksheet(title="Orders", rows=1000, cols=8)
-        ws.update(
-            "A1",
-            [
-                [
-                    "Order_ID",
-                    "Order_Month",
-                    "Name",
-                    "Book_URL",
-                    "Title",
-                    "Author",
-                    "Price",
-                    "Created_At",
-                ]
-            ],
-        )
+        ws = ss.add_worksheet(title="Orders", rows=1000, cols=10)
+        ws.update(range_name="A1", values=[target_headers])
         print("Orders 시트 생성 완료")
     else:
-        print("Orders 시트 이미 존재")
+        ws = ss.worksheet("Orders")
+        headers = ws.row_values(1)
+        if headers == target_headers:
+            print("Orders 시트 이미 최신 스키마")
+        else:
+            # 기존 데이터를 읽어서 새 열 순서로 재배치
+            all_data = ws.get_all_records()
+            ws.clear()
+            ws.resize(cols=10)
+            ws.update(range_name="A1", values=[target_headers])
+            if all_data:
+                rows = []
+                for r in all_data:
+                    rows.append(
+                        [
+                            str(r.get("Order_ID", "")),
+                            str(r.get("Order_Month", "")),
+                            str(r.get("Name", "")),
+                            str(r.get("Book_URL", "")),
+                            str(r.get("Title", "")),
+                            str(r.get("Author", "")),
+                            str(r.get("Publisher", "")),
+                            str(r.get("ISBN", "")),
+                            r.get("Price", ""),
+                            str(r.get("Created_At", "")),
+                        ]
+                    )
+                ws.update(
+                    range_name=f"A2:J{len(rows) + 1}",
+                    values=rows,
+                    value_input_option="RAW",
+                )
+            print(f"Orders 시트 마이그레이션 완료 (열 재배치, {len(all_data)}건)")
 
     # Config 시트
     if "Config" not in existing:
         ws = ss.add_worksheet(title="Config", rows=10, cols=2)
         ws.update(
-            "A1",
-            [
+            range_name="A1",
+            values=[
                 ["Key", "Value"],
                 ["current_order_month", "2026-03"],
                 ["is_closed", "false"],
@@ -105,7 +136,7 @@ def setup():
     # Logs 시트
     if "Logs" not in existing:
         ws = ss.add_worksheet(title="Logs", rows=1000, cols=3)
-        ws.update("A1", [["Timestamp", "Event_Type", "Message"]])
+        ws.update(range_name="A1", values=[["Timestamp", "Event_Type", "Message"]])
         print("Logs 시트 생성 완료")
     else:
         print("Logs 시트 이미 존재")

@@ -9,7 +9,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+
+import utils.scraper as _scraper_mod
 from utils.scraper import ScrapingError, normalize_yes24_url, scrape_book_info
+
+_extract_isbn = _scraper_mod._extract_isbn
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -104,6 +108,7 @@ class TestScrapeBookInfoNormal:
         assert book.url == "https://www.yes24.com/Product/Goods/91288143"
         assert book.is_available is True
         assert book.unavailable_reason is None
+        assert book.isbn == "9788966260959"
 
     @patch("utils.scraper.requests.get")
     def test_uses_user_agent(self, mock_get):
@@ -148,6 +153,7 @@ class TestScrapeBookInfoSoldout:
         assert book.price == 13500
         assert book.is_available is False
         assert book.unavailable_reason == "품절"
+        assert book.isbn == "9788954699952"
 
 
 class TestScrapeBookInfoEbook:
@@ -167,6 +173,7 @@ class TestScrapeBookInfoEbook:
         assert book.price == 20000  # 판매가 (크레마머니 최대혜택가 17,000이 아님)
         assert book.is_available is False
         assert book.unavailable_reason == "eBook"
+        assert book.isbn == ""  # eBook fixture에는 ISBN 없음
 
 
 class TestScrapeBookInfoErrors:
@@ -209,3 +216,68 @@ class TestScrapeBookInfoErrors:
 
         with pytest.raises(ScrapingError, match="제목"):
             scrape_book_info("https://www.yes24.com/Product/Goods/11111111")
+
+
+# ===========================================================================
+# _extract_isbn 단위 테스트
+# ===========================================================================
+class TestExtractIsbn:
+    """ISBN 추출 헬퍼 함수 테스트"""
+
+    def test_extract_from_json_ld(self):
+        """JSON-LD 구조화 데이터에서 ISBN 추출"""
+        from bs4 import BeautifulSoup
+
+        html = """
+        <html><head>
+        <script type="application/ld+json">
+        {"@type": "Book", "isbn": "9788966260959"}
+        </script>
+        </head><body></body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _extract_isbn(soup) == "9788966260959"
+
+    def test_extract_from_infoset_table(self):
+        """#infoset_specific 테이블에서 ISBN13 추출"""
+        from bs4 import BeautifulSoup
+
+        html = """
+        <html><body>
+        <div id="infoset_specific">
+            <table><tbody>
+                <tr><td>ISBN13</td><td>9788954699952</td></tr>
+            </tbody></table>
+        </div>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _extract_isbn(soup) == "9788954699952"
+
+    def test_json_ld_takes_priority(self):
+        """JSON-LD와 테이블 모두 있으면 JSON-LD 우선"""
+        from bs4 import BeautifulSoup
+
+        html = """
+        <html><head>
+        <script type="application/ld+json">
+        {"@type": "Book", "isbn": "9781111111111"}
+        </script>
+        </head><body>
+        <div id="infoset_specific">
+            <table><tbody>
+                <tr><td>ISBN13</td><td>9782222222222</td></tr>
+            </tbody></table>
+        </div>
+        </body></html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        assert _extract_isbn(soup) == "9781111111111"
+
+    def test_no_isbn_returns_empty(self):
+        """ISBN 정보 없으면 빈 문자열"""
+        from bs4 import BeautifulSoup
+
+        html = "<html><body><p>ISBN 없는 페이지</p></body></html>"
+        soup = BeautifulSoup(html, "html.parser")
+        assert _extract_isbn(soup) == ""

@@ -89,7 +89,7 @@ python scripts/setup_sheets.py
 | 워크시트 | 헤더 | 설명 |
 |----------|------|------|
 | Members | `Name`, `PIN`, `Fee_Paid` | 회원 명부 (PIN: 4자리, Fee_Paid: 회비 납부 여부) |
-| Orders | `Order_ID`, `Order_Month`, `Name`, `Book_URL`, `Title`, `Author`, `Price`, `Created_At` | 주문 내역 |
+| Orders | `Order_ID`, `Order_Month`, `Name`, `Book_URL`, `Title`, `Author`, `Price`, `Created_At`, `Publisher`, `ISBN` | 주문 내역 |
 | Config | `Key`, `Value` | 서비스 설정 (접수월, 마감 여부, 자동마감 일시) |
 | Logs | `Timestamp`, `Event_Type`, `Message` | 이벤트 로그 |
 

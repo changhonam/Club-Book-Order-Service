@@ -145,6 +145,7 @@ with tab2:
                     "신청자": o.name,
                     "제목": o.title,
                     "저자": o.author,
+                    "출판사": o.publisher,
                     "가격": o.price,
                     "신청일": o.created_at,
                 }
@@ -428,6 +429,8 @@ with tab5:
                 title=info.title,
                 author=info.author,
                 price=info.price,
+                publisher=info.publisher,
+                isbn=info.isbn,
             )
             append_log(
                 "ORDER_CREATE",
@@ -446,6 +449,7 @@ with tab5:
     st.markdown("#### 수동 입력")
     manual_title = st.text_input("제목", key="admin_manual_title")
     manual_author = st.text_input("저자", key="admin_manual_author")
+    manual_publisher = st.text_input("출판사 (선택)", key="admin_manual_publisher")
     manual_price = st.number_input(
         "판매가 (원)", min_value=0, step=100, key="admin_manual_price"
     )
@@ -465,6 +469,7 @@ with tab5:
                 title=manual_title.strip(),
                 author=manual_author.strip(),
                 price=int(manual_price),
+                publisher=manual_publisher.strip(),
             )
             append_log(
                 "ORDER_CREATE",
@@ -507,7 +512,9 @@ with tab6:
                             "신청자": o.name,
                             "제목": o.title,
                             "저자": o.author,
+                            "출판사": o.publisher,
                             "가격": o.price,
+                            "ISBN": o.isbn,
                             "URL": o.book_url,
                             "신청일": o.created_at,
                         }

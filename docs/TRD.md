@@ -27,6 +27,8 @@
 | Author | String | 저자 |
 | Price | Integer | 판매가 |
 | Created_At | Timestamp | 신청 일시 (YYYY-MM-DD HH:MM:SS) |
+| Publisher | String | 출판사 (빈 문자열 허용) |
+| ISBN | String | ISBN-13 (빈 문자열 허용, 스크래핑 실패 시 빈 값) |
 
 ### [Sheet 3: Config]
 | Key | Value | 설명 |
