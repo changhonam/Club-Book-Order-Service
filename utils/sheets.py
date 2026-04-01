@@ -5,6 +5,9 @@ import random
 import time
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 from typing import Optional
 
 import gspread
@@ -257,7 +260,7 @@ def add_order(
 ) -> OrderRecord:
     """주문 추가. order_id는 UUID4 자동 생성."""
     order_id = str(uuid.uuid4())
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    created_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     ws = _get_spreadsheet().worksheet("Orders")
     ws.append_row(
         [
@@ -372,7 +375,7 @@ def update_config(
 def append_log(event_type: str, message: str) -> None:
     """이벤트 로그 기록. 캐싱 없음."""
     ws = _get_spreadsheet().worksheet("Logs")
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     ws.append_row([timestamp, event_type, message])
 
 
@@ -450,7 +453,7 @@ def set_payment_status(name: str, month: str, is_paid: bool) -> bool:
     """입금 상태 설정. 기존 행이 있으면 업데이트, 없으면 신규 추가."""
     ws = _get_spreadsheet().worksheet("Payments")
     records = ws.get_all_records()
-    paid_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S") if is_paid else ""
+    paid_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S") if is_paid else ""
 
     for idx, r in enumerate(records):
         if str(r.get("Name", "")) == name and str(r.get("Order_Month", "")) == month:

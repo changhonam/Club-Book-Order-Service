@@ -1,6 +1,9 @@
 """독서동호회 도서 구매 신청 서비스 - 메인 앱"""
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import streamlit as st
 
@@ -22,8 +25,8 @@ init_session_state()
 config = get_config()
 if config.auto_close_datetime and not config.is_closed:
     try:
-        auto_close_dt = datetime.strptime(config.auto_close_datetime, "%Y-%m-%d %H:%M")
-        if datetime.now() >= auto_close_dt:
+        auto_close_dt = datetime.strptime(config.auto_close_datetime, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+        if datetime.now(KST) >= auto_close_dt:
             update_config(is_closed=True)
             append_log(
                 "ADMIN_CLOSE_MONTH",

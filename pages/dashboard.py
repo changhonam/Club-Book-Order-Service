@@ -1,6 +1,9 @@
 """회원 대시보드 — 도서 구매 신청 및 현황 조회."""
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import streamlit as st
 
@@ -41,7 +44,7 @@ is_closed = config.is_closed
 # --- 월 선택 ---
 existing_months = get_existing_order_months()
 
-now = datetime.now()
+now = datetime.now(KST)
 window_months: set[str] = set()
 for i in range(12):
     year = now.year

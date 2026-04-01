@@ -2,7 +2,10 @@
 
 import io
 import re
-from datetime import date, datetime, time
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
 
 import pandas as pd
 import streamlit as st
@@ -106,7 +109,7 @@ with tab1:
     col_date, col_time = st.columns(2)
     with col_date:
         close_date = st.date_input(
-            "마감 날짜", value=date.today(), key="admin_close_date"
+            "마감 날짜", value=datetime.now(KST).date(), key="admin_close_date"
         )
     with col_time:
         close_time = st.time_input(
@@ -129,7 +132,7 @@ with tab2:
     st.subheader("신청 현황")
 
     existing_months = get_existing_order_months()
-    now = datetime.now()
+    now = datetime.now(KST)
     window_months: set[str] = set()
     for i in range(12):
         year = now.year
