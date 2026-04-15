@@ -1,12 +1,11 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "Stop": [
       {
-        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
-            "command": "FILE_PATH=$(python -c \"import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))\") && echo \"$FILE_PATH\" | grep -qiE '\\.py$' && ruff check --fix \"$FILE_PATH\" 2>/dev/null && ruff format \"$FILE_PATH\" 2>/dev/null || true"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && FILES=$(git diff --name-only --diff-filter=ACMR HEAD | grep -E '\\.py$'); if [ -n \"$FILES\" ]; then echo \"$FILES\" | xargs ruff check --fix 2>/dev/null; echo \"$FILES\" | xargs ruff format 2>/dev/null; fi; exit 0"
           }
         ]
       }
