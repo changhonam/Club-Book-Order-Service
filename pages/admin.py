@@ -10,7 +10,7 @@ KST = ZoneInfo("Asia/Seoul")
 import pandas as pd
 import streamlit as st
 
-from utils.scraper import ScrapingError, scrape_book_info
+from utils.scraper import ScrapingError, extract_goods_id, scrape_book_info
 from utils.settlement import calculate_monthly_payment
 from utils.sheets import (
     add_order,
@@ -212,6 +212,26 @@ with tab2:
             st.metric("총 지원금", f"{total_all_support:,}원")
         with col3:
             st.metric("총 본인부담", f"{total_all_payment:,}원")
+
+        # --- 카트에 담기용 신청 URL 복사 ---
+        st.markdown("#### 카트에 담기용 신청 URL 복사")
+        valid_urls: list[str] = []
+        invalid_orders: list[tuple[str, str]] = []
+        for o in orders:
+            gid = extract_goods_id(o.book_url)
+            if gid:
+                valid_urls.append(f"https://www.yes24.com/Product/Goods/{gid}")
+            else:
+                invalid_orders.append((o.name, o.title))
+
+        url_text = "\n".join(valid_urls)
+        st.caption(f"총 {len(valid_urls)}개 URL (Chrome Extension 입력용)")
+        if invalid_orders:
+            st.warning(
+                f"유효하지 않은 URL {len(invalid_orders)}건 제외: "
+                + ", ".join(f"{n}-{t}" for n, t in invalid_orders)
+            )
+        st.code(url_text, language=None)
 
 # =============================================================================
 # 탭 3: 회원 관리

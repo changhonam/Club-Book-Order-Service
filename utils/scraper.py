@@ -67,6 +67,16 @@ def normalize_yes24_url(url: str) -> str:
     return f"https://www.yes24.com/Product/Goods/{goods_id}"
 
 
+def extract_goods_id(url: str) -> str | None:
+    """Yes24 URL에서 상품번호만 추출. 실패 시 None."""
+    try:
+        normalized = normalize_yes24_url(url)
+    except ValueError:
+        return None
+    match = _RE_GOODS_ID.search(normalized)
+    return match.group(1) if match else None
+
+
 # ---------------------------------------------------------------------------
 # 가격 파싱 헬퍼
 # ---------------------------------------------------------------------------
