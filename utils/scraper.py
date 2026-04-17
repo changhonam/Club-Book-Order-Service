@@ -242,10 +242,23 @@ def scrape_book_info(url: str) -> BookInfo:
             normalized_url, headers=headers, timeout=REQUEST_TIMEOUT
         )
         response.raise_for_status()
-    except requests.exceptions.Timeout as e:
-        raise ScrapingError(f"요청 시간 초과: {normalized_url}") from e
+    except requests.exceptions.ConnectTimeout as e:
+        raise ScrapingError(
+            f"연결 타임아웃(TCP 핸드셰이크 실패, 차단 의심): {normalized_url}"
+        ) from e
+    except requests.exceptions.ReadTimeout as e:
+        raise ScrapingError(
+            f"읽기 타임아웃(응답 {REQUEST_TIMEOUT}s 초과): {normalized_url}"
+        ) from e
+    except requests.exceptions.ConnectionError as e:
+        raise ScrapingError(
+            f"연결 오류(DNS/TLS/RST 등): {type(e).__name__}: {e}"
+        ) from e
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response is not None else "?"
+        raise ScrapingError(f"HTTP {status} 오류: {normalized_url}") from e
     except requests.exceptions.RequestException as e:
-        raise ScrapingError(f"HTTP 요청 실패: {e}") from e
+        raise ScrapingError(f"HTTP 요청 실패: {type(e).__name__}: {e}") from e
 
     response.encoding = "utf-8"
     soup = BeautifulSoup(response.text, "html.parser")
