@@ -27,7 +27,7 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
-REQUEST_TIMEOUT = 10
+REQUEST_TIMEOUT = 30
 
 # Yes24 URL 패턴
 _RE_GOODS_ID = re.compile(r"/(?:Product/)?Goods/(?:Detail/)?(\d+)", re.IGNORECASE)
