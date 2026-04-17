@@ -4,9 +4,21 @@ import re
 from urllib.parse import urlparse
 
 import requests
+import streamlit as st
 from bs4 import BeautifulSoup
 
 from utils import BookInfo
+
+SCRAPINGBEE_ENDPOINT = "https://app.scrapingbee.com/api/v1/"
+
+
+def _get_scraper_api_key() -> str | None:
+    """ScrapingBee API 키를 secrets에서 조회. 없으면 None (로컬 직접 요청)."""
+    try:
+        return st.secrets.get("SCRAPER_API_KEY") or None
+    except (FileNotFoundError, KeyError):
+        return None
+
 
 # ---------------------------------------------------------------------------
 # CSS 셀렉터 상수 (Yes24 PC 페이지 기준)
@@ -236,10 +248,32 @@ def scrape_book_info(url: str) -> BookInfo:
         raise ScrapingError(str(e)) from e
 
     headers = {"User-Agent": USER_AGENT}
+    api_key = _get_scraper_api_key()
+    print(
+        f"[scraper] mode={'scrapingbee(kr)' if api_key else 'direct'} "
+        f"url={normalized_url}",
+        flush=True,
+    )
 
     try:
-        response = requests.get(
-            normalized_url, headers=headers, timeout=REQUEST_TIMEOUT
+        if api_key:
+            response = requests.get(
+                SCRAPINGBEE_ENDPOINT,
+                params={
+                    "api_key": api_key,
+                    "url": normalized_url,
+                    "country_code": "kr",
+                    "render_js": "false",
+                },
+                timeout=REQUEST_TIMEOUT,
+            )
+        else:
+            response = requests.get(
+                normalized_url, headers=headers, timeout=REQUEST_TIMEOUT
+            )
+        print(
+            f"[scraper] status={response.status_code} len={len(response.content)}",
+            flush=True,
         )
         response.raise_for_status()
     except requests.exceptions.ConnectTimeout as e:
