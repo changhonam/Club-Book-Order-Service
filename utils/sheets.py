@@ -439,11 +439,14 @@ def get_all_payments_by_month(month: str) -> dict[str, PaymentRecord]:
     for r in records:
         if str(r.get("Order_Month", "")) == month:
             name = str(r.get("Name", ""))
+            raw_verified = str(r.get("Verified_Result", "")).strip()
+            verified_result = "" if raw_verified in ("nan", "None") else raw_verified
             result[name] = PaymentRecord(
                 name=name,
                 order_month=month,
                 is_paid=str(r.get("Is_Paid", "false")).lower() == "true",
                 paid_at=str(r.get("Paid_At", "")),
+                verified_result=verified_result,
             )
     return result
 
@@ -472,6 +475,56 @@ def set_payment_status(name: str, month: str, is_paid: bool) -> bool:
         ws.append_row([name, month, "true", paid_at], value_input_option="RAW")
     clear_payment_cache()
     return True
+
+
+@with_retry()
+def batch_set_verified_results(month: str, results: dict[str, str]) -> int:
+    """입금 검증 결과 문자열 일괄 저장. Verified_Result 컬럼 업데이트.
+    results: {member_name: 검증 결과 문자열}
+    Returns: 처리된 회원 수
+    """
+    if not results:
+        return 0
+
+    ws = _get_spreadsheet().worksheet("Payments")
+    header = ws.row_values(1)
+
+    if "Verified_Result" not in header:
+        verified_col = len(header) + 1
+        if ws.col_count < verified_col:
+            ws.resize(rows=ws.row_count, cols=verified_col)
+        ws.update_cell(1, verified_col, "Verified_Result")
+        header.append("Verified_Result")
+    else:
+        verified_col = header.index("Verified_Result") + 1  # 1-based
+
+    records = ws.get_all_records()
+    batch_data = []
+    updated_names: set[str] = set()
+
+    for idx, r in enumerate(records):
+        row = idx + 2  # 헤더 + 0-based
+        name = str(r.get("Name", ""))
+        rec_month = str(r.get("Order_Month", ""))
+        if rec_month == month and name in results:
+            cell_addr = gspread.utils.rowcol_to_a1(row, verified_col)
+            batch_data.append({"range": cell_addr, "values": [[results[name]]]})
+            updated_names.add(name)
+
+    if batch_data:
+        ws.batch_update(batch_data, value_input_option="RAW")
+
+    # 아직 Payments 행이 없는 회원은 신규 추가
+    for name, amount in results.items():
+        if name not in updated_names:
+            row_data = [name, month, "false", "", amount]
+            # 컬럼 수가 5보다 작으면 padding
+            while len(row_data) < verified_col:
+                row_data.insert(-1, "")
+            ws.append_row(row_data, value_input_option="RAW")
+
+    clear_payment_cache()
+    return len(results)
 
 
 def clear_payment_cache() -> None:

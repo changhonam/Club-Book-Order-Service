@@ -12,14 +12,17 @@ import streamlit as st
 
 from utils.scraper import ScrapingError, extract_goods_id, scrape_book_info
 from utils.settlement import calculate_monthly_payment
+from utils.bank_parser import match_deposits_to_members, parse_hana_bank_excel
 from utils.sheets import (
     add_order,
     append_log,
     batch_add_members,
+    batch_set_verified_results,
     batch_update_fee_paid,
     clear_config_cache,
     clear_member_cache,
     clear_order_cache,
+    clear_payment_cache,
     delete_orders_by_month,
     find_member,
     get_all_members,
@@ -48,8 +51,33 @@ st.title("🔧 관리자 페이지")
 
 config = get_config()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["접수 관리", "신청 현황", "회원 관리", "회비 관리", "대리 신청", "내보내기 & 로그"]
+# 탭 전체에서 공유하는 월 목록 계산
+existing_months = get_existing_order_months()
+_now = datetime.now(KST)
+_window: set[str] = set()
+for _i in range(12):
+    _y, _m = _now.year, _now.month - _i
+    while _m <= 0:
+        _m += 12
+        _y -= 1
+    _window.add(f"{_y:04d}-{_m:02d}")
+months: list[str] = sorted(existing_months & _window, reverse=True)
+if config.current_order_month and config.current_order_month not in months:
+    months.insert(0, config.current_order_month)
+if config.current_order_month in months and months[0] != config.current_order_month:
+    months.remove(config.current_order_month)
+    months.insert(0, config.current_order_month)
+
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    [
+        "접수 관리",
+        "신청 현황",
+        "회원 관리",
+        "회비 관리",
+        "입금 검증",
+        "대리 신청",
+        "내보내기 & 로그",
+    ]
 )
 
 # =============================================================================
@@ -131,22 +159,6 @@ with tab1:
 with tab2:
     st.subheader("신청 현황")
 
-    existing_months = get_existing_order_months()
-    now = datetime.now(KST)
-    window_months: set[str] = set()
-    for i in range(12):
-        year = now.year
-        month = now.month - i
-        while month <= 0:
-            month += 12
-            year -= 1
-        window_months.add(f"{year:04d}-{month:02d}")
-    months: list[str] = sorted(existing_months & window_months, reverse=True)
-    if config.current_order_month and config.current_order_month not in months:
-        months.insert(0, config.current_order_month)
-    if config.current_order_month in months and months[0] != config.current_order_month:
-        months.remove(config.current_order_month)
-        months.insert(0, config.current_order_month)
     selected_month = st.selectbox(
         "조회 월",
         options=months,
@@ -189,6 +201,14 @@ with tab2:
         summary["입금"] = summary["신청자"].apply(
             lambda n: "완료" if payments.get(n) and payments[n].is_paid else "대기"
         )
+
+        def _fmt_verified(name: str) -> str:
+            p = payments.get(name)
+            if p is None or not p.verified_result:
+                return "미검증"
+            return p.verified_result
+
+        summary["검증결과"] = summary["신청자"].apply(_fmt_verified)
         st.dataframe(summary, width="stretch")
 
         # --- 전체 주문 목록 ---
@@ -471,9 +491,120 @@ with tab4:
     fee_management_fragment()
 
 # =============================================================================
-# 탭 5: 대리 신청
+# 탭 5: 입금 검증
 # =============================================================================
 with tab5:
+    st.subheader("입금 검증")
+
+    verify_month = st.selectbox(
+        "검증 월",
+        options=months,
+        index=0,
+        key="admin_verify_month",
+    )
+
+    verify_orders = get_orders_by_month(verify_month)
+
+    if not verify_orders:
+        st.info(f"{verify_month}에 신청된 주문이 없습니다.")
+    else:
+        # 회원별 본인부담금 계산
+        verify_members = sorted({o.name for o in verify_orders})
+        expected: dict[str, int] = {}
+        for _name in verify_members:
+            _total = sum(o.price for o in verify_orders if o.name == _name)
+            expected[_name] = calculate_monthly_payment(_total).user_payment
+
+        st.markdown("#### 본인부담금 현황")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"회원": n, "본인부담금": f"{expected[n]:,}원"}
+                    for n in verify_members
+                ]
+            ),
+            width="stretch",
+        )
+
+        st.markdown("#### 거래내역 엑셀 업로드")
+        st.caption(
+            "하나은행 인터넷뱅킹 > 거래내역조회 > 엑셀 다운로드 파일 (.xls 또는 .xlsx)"
+        )
+        uploaded_file = st.file_uploader(
+            "거래내역 파일 선택",
+            type=["xls", "xlsx"],
+            key="admin_bank_upload",
+        )
+
+        if uploaded_file:
+            try:
+                deposits = parse_hana_bank_excel(uploaded_file)
+                matched, unmatched = match_deposits_to_members(deposits, verify_members)
+
+                result_rows = []
+                for _name in verify_members:
+                    exp = expected[_name]
+                    actual = matched.get(_name, 0)
+                    if exp == 0:
+                        status = "— 해당없음"
+                    elif actual == 0:
+                        status = "❌ 미입금"
+                    elif actual < exp:
+                        status = f"❌ 부족 ({actual:,}/{exp:,}원)"
+                    elif actual == exp:
+                        status = "✅ 정확"
+                    else:
+                        status = f"⚠️ 초과 ({actual:,}/{exp:,}원)"
+                    result_rows.append(
+                        {
+                            "회원": _name,
+                            "본인부담금": f"{exp:,}원",
+                            "실입금액": f"{actual:,}원" if actual > 0 else "—",
+                            "결과": status,
+                        }
+                    )
+
+                st.markdown("#### 검증 결과")
+                st.dataframe(pd.DataFrame(result_rows), width="stretch")
+
+                if unmatched:
+                    st.markdown("#### 미매칭 입금")
+                    st.caption("회원으로 식별되지 않은 입금 내역입니다.")
+                    st.dataframe(
+                        pd.DataFrame(
+                            [
+                                {
+                                    "입금자명": d["depositor"],
+                                    "입금액": f"{d['amount']:,}원",
+                                }
+                                for d in unmatched
+                            ]
+                        ),
+                        width="stretch",
+                    )
+
+                result_to_save = {
+                    row["회원"]: row["결과"]
+                    for row in result_rows
+                    if row["결과"] != "— 해당없음"
+                }
+                if st.button("검증 결과 저장", key="btn_save_verify", type="primary"):
+                    count = batch_set_verified_results(verify_month, result_to_save)
+                    append_log(
+                        "PAYMENT_VERIFY", f"{verify_month} 입금 검증 저장: {count}건"
+                    )
+                    st.success(f"{count}건의 검증 결과가 저장되었습니다.")
+                    clear_payment_cache()
+                    st.rerun()
+
+            except Exception as e:
+                st.error(f"파일 처리 오류: {e}")
+
+
+# =============================================================================
+# 탭 6: 대리 신청
+# =============================================================================
+with tab6:
     st.subheader("대리 신청")
 
     members_for_proxy = get_member_names()
@@ -573,9 +704,9 @@ with tab5:
             st.rerun()
 
 # =============================================================================
-# 탭 6: 내보내기 & 로그
+# 탭 7: 내보내기 & 로그
 # =============================================================================
-with tab6:
+with tab7:
     st.subheader("내보내기 & 로그")
 
     # --- Excel 내보내기 ---

@@ -56,8 +56,9 @@ class PaymentRecord:
 
     name: str  # 회원 이름
     order_month: str  # "YYYY-MM"
-    is_paid: bool  # 입금 완료 여부
+    is_paid: bool  # 입금 완료 여부 (회원 자기 신고)
     paid_at: str = ""  # "YYYY-MM-DD HH:MM:SS"
+    verified_result: str = ""  # 입금 검증 결과 문자열 (빈 문자열=미검증)
 
 
 @dataclass

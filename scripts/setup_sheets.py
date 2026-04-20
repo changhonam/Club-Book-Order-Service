@@ -134,14 +134,27 @@ def setup():
         print("Config 시트 이미 존재")
 
     # Payments 시트
+    target_payments_headers = [
+        "Name",
+        "Order_Month",
+        "Is_Paid",
+        "Paid_At",
+        "Verified_Result",
+    ]
     if "Payments" not in existing:
-        ws = ss.add_worksheet(title="Payments", rows=500, cols=4)
-        ws.update(
-            range_name="A1", values=[["Name", "Order_Month", "Is_Paid", "Paid_At"]]
-        )
+        ws = ss.add_worksheet(title="Payments", rows=500, cols=5)
+        ws.update(range_name="A1", values=[target_payments_headers])
         print("Payments 시트 생성 완료")
     else:
-        print("Payments 시트 이미 존재")
+        ws = ss.worksheet("Payments")
+        headers = ws.row_values(1)
+        if "Verified_Result" not in headers:
+            if ws.col_count < 5:
+                ws.resize(rows=ws.row_count, cols=5)
+            ws.update_cell(1, 5, "Verified_Result")
+            print("Payments 시트 마이그레이션 완료 (Verified_Result 컬럼 추가)")
+        else:
+            print("Payments 시트 이미 최신 스키마")
 
     # Logs 시트
     if "Logs" not in existing:

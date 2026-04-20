@@ -42,8 +42,9 @@
 |------|------|------|
 | Name | String | 회원 이름 |
 | Order_Month | String | 주문 월 (YYYY-MM) |
-| Is_Paid | String | 입금 완료 여부 ("true"/"false") |
+| Is_Paid | String | 입금 완료 여부 (회원 자기 신고, "true"/"false") |
 | Paid_At | String | 입금 완료 처리 일시 (YYYY-MM-DD HH:MM:SS, 미입금 시 빈 값) |
+| Verified_Result | String | 입금 검증 결과 문자열 (빈 문자열=미검증, 예: "✅ 정확", "❌ 미입금") |
 
 ### [Sheet 5: Logs]
 | 컬럼 | 타입 | 설명 |
@@ -52,7 +53,7 @@
 | Event_Type | String | 이벤트 유형 |
 | Message | String | 상세 메시지 |
 
-**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_PAID_BATCH, FEE_RESET_ALL, PAYMENT_DONE
+**Event_Type**: ORDER_CREATE, ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_PAID_BATCH, FEE_RESET_ALL, PAYMENT_DONE, PAYMENT_VERIFY
 
 **보존 기간**: 무기한. 관리자 페이지에서 최근 50건 조회.
 

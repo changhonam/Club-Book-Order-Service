@@ -16,6 +16,7 @@
 - 언어: 코드(영문), UI/주석(한국어)
 - secrets.toml은 절대 커밋하지 않을 것
 - Plan 기반 작업 완료 시 `/update-docs`를 실행하여 문서 동기화 확인할 것 (단순 수정은 생략 가능)
+- **시트 스키마 변경 시 반드시 `scripts/setup_sheets.py`도 함께 업데이트할 것**: 신규 시트 추가, 컬럼 추가/변경/삭제가 발생하면 해당 시트의 생성 로직과 기존 시트 마이그레이션 로직을 모두 반영해야 함
 
 ## 프로젝트 구조
 ```
@@ -30,8 +31,11 @@
 │   ├── sheets.py           # Google Sheets CRUD
 │   ├── scraper.py          # Yes24 스크래핑
 │   ├── settlement.py       # 정산 로직
+│   ├── bank_parser.py      # 하나은행 거래내역 엑셀 파싱 및 회원 매칭
 │   ├── navigation.py       # 네비게이션 페이지 목록 생성
 │   └── sidebar.py          # 사이드바 및 session_state 초기화
+├── scripts/
+│   └── setup_sheets.py     # Google Sheets 초기 설정 및 마이그레이션 스크립트
 ├── requirements.txt
 ├── .streamlit/
 │   ├── config.toml
