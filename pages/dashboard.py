@@ -41,6 +41,9 @@ config = get_config()
 current_month = config.current_order_month
 is_closed = config.is_closed
 
+if not is_closed and config.auto_close_datetime:
+    st.info(f"📅 신청 마감 예정: {config.auto_close_datetime} (KST)")
+
 # --- 월 선택 ---
 existing_months = get_existing_order_months()
 
