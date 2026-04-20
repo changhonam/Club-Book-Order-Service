@@ -179,6 +179,12 @@ with tab2:
             .agg(주문수=("제목", "count"), 총액=("가격", "sum"))
             .reset_index()
         )
+        summary["지원금"] = summary["총액"].apply(
+            lambda t: calculate_monthly_payment(t).club_support
+        )
+        summary["본인부담금"] = summary["총액"].apply(
+            lambda t: calculate_monthly_payment(t).user_payment
+        )
         payments = get_all_payments_by_month(selected_month)
         summary["입금"] = summary["신청자"].apply(
             lambda n: "완료" if payments.get(n) and payments[n].is_paid else "대기"
