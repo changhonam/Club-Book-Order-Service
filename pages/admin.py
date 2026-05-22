@@ -23,6 +23,7 @@ from utils.sheets import (
     clear_member_cache,
     clear_order_cache,
     clear_payment_cache,
+    delete_order,
     delete_orders_by_month,
     find_member,
     get_all_members,
@@ -258,6 +259,37 @@ with tab2:
                 + ", ".join(f"{n}-{t}" for n, t in invalid_orders)
             )
         st.code(url_text, language=None)
+
+        # --- 주문 개별 삭제 ---
+        st.markdown("#### 주문 삭제")
+        st.caption("회원의 개별 신청 도서를 삭제합니다. 되돌릴 수 없습니다.")
+        for o in orders:
+            c1, c2 = st.columns([5, 1])
+            with c1:
+                pub = f" | {o.publisher}" if o.publisher else ""
+                st.markdown(
+                    f"**{o.name}** · {o.title} — {o.author}{pub} · {o.price:,}원"
+                )
+            with c2:
+                confirm_key = f"admin_del_confirm_{o.order_id}"
+                if st.session_state.get(confirm_key):
+                    if st.button(
+                        "확인", key=f"admin_del_yes_{o.order_id}", type="primary"
+                    ):
+                        if delete_order(o.order_id):
+                            append_log(
+                                "ADMIN_ORDER_DELETE",
+                                f"{o.name} 주문 삭제: {o.title}",
+                            )
+                            clear_order_cache()
+                            st.session_state.pop(confirm_key, None)
+                            st.rerun()
+                        else:
+                            st.error("삭제에 실패했습니다")
+                else:
+                    if st.button("삭제", key=f"admin_del_{o.order_id}"):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
 
 # =============================================================================
 # 탭 3: 회원 관리
