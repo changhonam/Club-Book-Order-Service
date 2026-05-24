@@ -60,6 +60,7 @@ elif st.session_state._pending_admin:
             append_log("LOGIN", f"{name} 관리자 로그인")
             st.rerun()
         else:
+            append_log("LOGIN_FAIL", f"{name} 관리자 로그인 실패: 비밀번호 오류")
             st.error("비밀번호가 올바르지 않습니다")
 
     if normal_submit:
@@ -87,8 +88,12 @@ else:
         else:
             member = find_member(name.strip())
             if member is None:
+                append_log(
+                    "LOGIN_FAIL", f"{name.strip()} 로그인 실패: 등록되지 않은 이름"
+                )
                 st.error("등록되지 않은 이름입니다. 관리자에게 등록을 요청하세요.")
             elif pin != member.pin:
+                append_log("LOGIN_FAIL", f"{name.strip()} 로그인 실패: PIN 오류")
                 st.error("PIN이 올바르지 않습니다")
             else:
                 name = name.strip()
