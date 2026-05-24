@@ -212,9 +212,51 @@ with tab2:
         summary["검증결과"] = summary["신청자"].apply(_fmt_verified)
         st.dataframe(summary, width="stretch")
 
-        # --- 전체 주문 목록 ---
+        # --- 전체 주문 목록 (행 선택 후 삭제) ---
         st.markdown("#### 전체 주문 목록")
-        st.dataframe(df_orders, width="stretch")
+        st.caption(
+            "행을 선택하면 아래에서 삭제할 수 있습니다. 삭제는 되돌릴 수 없습니다."
+        )
+        event = st.dataframe(
+            df_orders,
+            width="stretch",
+            on_select="rerun",
+            selection_mode="multi-row",
+            key="admin_orders_table",
+        )
+        selected_rows = event.selection.rows
+        if selected_rows:
+            selected_orders = [orders[i] for i in selected_rows]
+            confirm_key = "admin_del_selected_confirm"
+            if st.session_state.get(confirm_key):
+                st.warning(
+                    "다음 주문을 삭제합니다: "
+                    + ", ".join(f"{o.name}-{o.title}" for o in selected_orders)
+                )
+                cc1, cc2 = st.columns(2)
+                with cc1:
+                    if st.button(
+                        "삭제 확인", type="primary", key="admin_del_selected_yes"
+                    ):
+                        for o in selected_orders:
+                            if delete_order(o.order_id):
+                                append_log(
+                                    "ADMIN_ORDER_DELETE",
+                                    f"{o.name} 주문 삭제: {o.title}",
+                                )
+                        clear_order_cache()
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+                with cc2:
+                    if st.button("취소", key="admin_del_selected_no"):
+                        st.session_state.pop(confirm_key, None)
+                        st.rerun()
+            else:
+                if st.button(
+                    f"선택한 {len(selected_orders)}건 삭제", key="admin_del_selected"
+                ):
+                    st.session_state[confirm_key] = True
+                    st.rerun()
 
         # --- 예산 요약 ---
         st.markdown("#### 예산 요약")
@@ -259,37 +301,6 @@ with tab2:
                 + ", ".join(f"{n}-{t}" for n, t in invalid_orders)
             )
         st.code(url_text, language=None)
-
-        # --- 주문 개별 삭제 ---
-        st.markdown("#### 주문 삭제")
-        st.caption("회원의 개별 신청 도서를 삭제합니다. 되돌릴 수 없습니다.")
-        for o in orders:
-            c1, c2 = st.columns([5, 1])
-            with c1:
-                pub = f" | {o.publisher}" if o.publisher else ""
-                st.markdown(
-                    f"**{o.name}** · {o.title} — {o.author}{pub} · {o.price:,}원"
-                )
-            with c2:
-                confirm_key = f"admin_del_confirm_{o.order_id}"
-                if st.session_state.get(confirm_key):
-                    if st.button(
-                        "확인", key=f"admin_del_yes_{o.order_id}", type="primary"
-                    ):
-                        if delete_order(o.order_id):
-                            append_log(
-                                "ADMIN_ORDER_DELETE",
-                                f"{o.name} 주문 삭제: {o.title}",
-                            )
-                            clear_order_cache()
-                            st.session_state.pop(confirm_key, None)
-                            st.rerun()
-                        else:
-                            st.error("삭제에 실패했습니다")
-                else:
-                    if st.button("삭제", key=f"admin_del_{o.order_id}"):
-                        st.session_state[confirm_key] = True
-                        st.rerun()
 
 # =============================================================================
 # 탭 3: 회원 관리
