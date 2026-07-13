@@ -71,13 +71,24 @@ def _get_spreadsheet():
     return client.open(spreadsheet_name)
 
 
+@st.cache_resource
+def _get_worksheet(name: str):
+    """워크시트 객체 반환 (캐싱됨).
+
+    gspread의 `.worksheet(name)`은 호출할 때마다 메타데이터 조회 API 읽기를
+    1회 발생시킨다. 캐싱하여 시트별 1회만 조회되도록 하고, 페이지 재실행 시
+    누적되는 API 읽기로 인한 할당량 초과(429)를 방지한다.
+    """
+    return _get_spreadsheet().worksheet(name)
+
+
 # --- Members ---
 
 
 @st.cache_data(ttl=600)
 def get_all_members() -> list[MemberRecord]:
     """전체 회원 목록 반환. TTL=600초 캐싱."""
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     records = ws.get_all_records()
     return [
         MemberRecord(
@@ -107,7 +118,7 @@ def add_member(name: str) -> bool:
     """회원 추가. 이미 존재하면 False 반환. PIN=0000, Fee_Paid=false."""
     if find_member(name) is not None:
         return False
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     ws.append_row([name, "0000", "false"], value_input_option="RAW")
     clear_member_cache()
     return True
@@ -121,7 +132,7 @@ def batch_add_members(names: list[str]) -> list[str]:
     existing = {m.name for m in get_all_members()}
     new_names = [n for n in names if n not in existing]
     if new_names:
-        ws = _get_spreadsheet().worksheet("Members")
+        ws = _get_worksheet("Members")
         rows = [[n, "0000", "false"] for n in new_names]
         ws.append_rows(rows, value_input_option="RAW")
         clear_member_cache()
@@ -131,7 +142,7 @@ def batch_add_members(names: list[str]) -> list[str]:
 @with_retry()
 def remove_member(name: str) -> bool:
     """회원 삭제. 존재하지 않으면 False 반환. Orders 데이터는 보존."""
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     cell = ws.find(name, in_column=1)
     if cell is None:
         return False
@@ -143,7 +154,7 @@ def remove_member(name: str) -> bool:
 @with_retry()
 def update_member_pin(name: str, new_pin: str) -> bool:
     """회원 PIN 변경. 존재하지 않으면 False 반환."""
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     cell = ws.find(name, in_column=1)
     if cell is None:
         return False
@@ -155,7 +166,7 @@ def update_member_pin(name: str, new_pin: str) -> bool:
 @with_retry()
 def update_member_fee_paid(name: str, fee_paid: bool) -> bool:
     """회원 회비 납부 상태 변경. 존재하지 않으면 False 반환."""
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     cell = ws.find(name, in_column=1)
     if cell is None:
         return False
@@ -169,7 +180,7 @@ def batch_update_fee_paid(names: list[str]) -> int:
     """여러 회원의 회비 납부 상태를 일괄 변경. batch_update로 1회 API 호출. 변경 건수 반환."""
     if not names:
         return 0
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     records = ws.get_all_records()
     name_set = set(names)
     batch_data = []
@@ -186,7 +197,7 @@ def batch_update_fee_paid(names: list[str]) -> int:
 @with_retry()
 def reset_all_fee_paid() -> int:
     """전체 회원 회비 납부 상태를 미납으로 초기화. batch_update로 1회 API 호출."""
-    ws = _get_spreadsheet().worksheet("Members")
+    ws = _get_worksheet("Members")
     records = ws.get_all_records()
     batch_data = []
     for idx, r in enumerate(records):
@@ -205,7 +216,7 @@ def reset_all_fee_paid() -> int:
 @st.cache_data(ttl=300)
 def _get_all_orders_raw() -> list[dict]:
     """전체 주문 원본 레코드. TTL=300초 캐싱."""
-    ws = _get_spreadsheet().worksheet("Orders")
+    ws = _get_worksheet("Orders")
     return ws.get_all_records()
 
 
@@ -261,7 +272,7 @@ def add_order(
     """주문 추가. order_id는 UUID4 자동 생성."""
     order_id = str(uuid.uuid4())
     created_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
-    ws = _get_spreadsheet().worksheet("Orders")
+    ws = _get_worksheet("Orders")
     ws.append_row(
         [
             order_id,
@@ -294,7 +305,7 @@ def add_order(
 @with_retry()
 def delete_order(order_id: str) -> bool:
     """주문 삭제. 존재하지 않으면 False 반환."""
-    ws = _get_spreadsheet().worksheet("Orders")
+    ws = _get_worksheet("Orders")
     cell = ws.find(order_id, in_column=1)
     if cell is None:
         return False
@@ -306,7 +317,7 @@ def delete_order(order_id: str) -> bool:
 @with_retry()
 def delete_orders_by_month(month: str) -> int:
     """특정 월의 전체 주문 삭제. 삭제된 건수 반환."""
-    ws = _get_spreadsheet().worksheet("Orders")
+    ws = _get_worksheet("Orders")
     records = ws.get_all_records()
     # 역순으로 삭제해야 행 번호가 밀리지 않음
     rows_to_delete = []
@@ -327,7 +338,7 @@ def delete_orders_by_month(month: str) -> int:
 @st.cache_data(ttl=60)
 def get_config() -> ConfigRecord:
     """서비스 설정 조회. TTL=60초 캐싱."""
-    ws = _get_spreadsheet().worksheet("Config")
+    ws = _get_worksheet("Config")
     records = ws.get_all_records()
     config_dict = {}
     for r in records:
@@ -350,7 +361,7 @@ def update_config(
     auto_close_datetime: Optional[str] = None,
 ) -> ConfigRecord:
     """설정 부분 업데이트. None인 필드는 변경하지 않음."""
-    ws = _get_spreadsheet().worksheet("Config")
+    ws = _get_worksheet("Config")
     records = ws.get_all_records()
     # Key -> row number 매핑 (헤더가 1행)
     key_row_map = {}
@@ -374,14 +385,14 @@ def update_config(
 @with_retry()
 def append_log(event_type: str, message: str) -> None:
     """이벤트 로그 기록. 캐싱 없음."""
-    ws = _get_spreadsheet().worksheet("Logs")
+    ws = _get_worksheet("Logs")
     timestamp = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
     ws.append_row([timestamp, event_type, message])
 
 
 def get_recent_logs(limit: int = 50) -> list[dict]:
     """최근 로그 조회."""
-    ws = _get_spreadsheet().worksheet("Logs")
+    ws = _get_worksheet("Logs")
     records = ws.get_all_records()
     # 역순으로 최근 limit건
     recent = records[-limit:] if len(records) > limit else records
@@ -422,7 +433,7 @@ def clear_config_cache() -> None:
 @st.cache_data(ttl=300)
 def get_payment_status(name: str, month: str) -> bool:
     """회원의 특정 월 입금 완료 여부 반환. TTL=300초 캐싱."""
-    ws = _get_spreadsheet().worksheet("Payments")
+    ws = _get_worksheet("Payments")
     records = ws.get_all_records()
     for r in records:
         if str(r.get("Name", "")) == name and str(r.get("Order_Month", "")) == month:
@@ -433,7 +444,7 @@ def get_payment_status(name: str, month: str) -> bool:
 @st.cache_data(ttl=300)
 def get_all_payments_by_month(month: str) -> dict[str, PaymentRecord]:
     """특정 월의 전체 입금 상태 반환. 회원 이름을 키로 하는 dict."""
-    ws = _get_spreadsheet().worksheet("Payments")
+    ws = _get_worksheet("Payments")
     records = ws.get_all_records()
     result = {}
     for r in records:
@@ -454,7 +465,7 @@ def get_all_payments_by_month(month: str) -> dict[str, PaymentRecord]:
 @with_retry()
 def set_payment_status(name: str, month: str, is_paid: bool) -> bool:
     """입금 상태 설정. 기존 행이 있으면 업데이트, 없으면 신규 추가."""
-    ws = _get_spreadsheet().worksheet("Payments")
+    ws = _get_worksheet("Payments")
     records = ws.get_all_records()
     paid_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S") if is_paid else ""
 
@@ -486,7 +497,7 @@ def batch_set_verified_results(month: str, results: dict[str, str]) -> int:
     if not results:
         return 0
 
-    ws = _get_spreadsheet().worksheet("Payments")
+    ws = _get_worksheet("Payments")
     header = ws.row_values(1)
 
     if "Verified_Result" not in header:
