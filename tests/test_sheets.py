@@ -42,7 +42,7 @@ sys.modules["streamlit"] = _mock_st
 import gspread  # noqa: E402
 import gspread.exceptions  # noqa: E402
 
-from utils import ConfigRecord, OrderRecord  # noqa: E402
+from utils import ConfigRecord, MemberRecord, OrderRecord  # noqa: E402
 
 # google.oauth2.service_account.Credentials mock (utils.sheets에서 사용)
 _real_google = sys.modules.get("google")
@@ -116,45 +116,57 @@ def mock_spreadsheet():
 class TestMembers:
     def test_get_all_members(self, mock_spreadsheet):
         """회원 전체 목록 조회."""
-        mock_spreadsheet["members"].col_values.return_value = [
-            "Name",
-            "홍길동",
-            "김철수",
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "홍길동", "PIN": "1234", "Fee_Paid": "true"},
+            {"Name": "김철수", "PIN": "0000", "Fee_Paid": "false"},
         ]
         result = get_all_members()
-        assert result == ["홍길동", "김철수"]
-        mock_spreadsheet["members"].col_values.assert_called_once_with(1)
+        assert all(isinstance(m, MemberRecord) for m in result)
+        assert [m.name for m in result] == ["홍길동", "김철수"]
+        assert result[0].pin == "1234"
+        assert result[0].fee_paid is True
+        assert result[1].fee_paid is False
 
     def test_get_all_members_empty(self, mock_spreadsheet):
         """빈 회원 목록."""
-        mock_spreadsheet["members"].col_values.return_value = []
+        mock_spreadsheet["members"].get_all_records.return_value = []
         result = get_all_members()
         assert result == []
 
     def test_find_member_exists(self, mock_spreadsheet):
         """존재하는 회원 검색."""
-        mock_spreadsheet["members"].col_values.return_value = [
-            "Name",
-            "홍길동",
-            "김철수",
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "홍길동", "PIN": "1234", "Fee_Paid": "true"},
+            {"Name": "김철수", "PIN": "0000", "Fee_Paid": "false"},
         ]
-        assert find_member("홍길동") is True
+        result = find_member("홍길동")
+        assert result is not None
+        assert result.name == "홍길동"
+        assert result.pin == "1234"
 
     def test_find_member_not_exists(self, mock_spreadsheet):
         """존재하지 않는 회원 검색."""
-        mock_spreadsheet["members"].col_values.return_value = ["Name", "홍길동"]
-        assert find_member("이영희") is False
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "홍길동", "PIN": "0000", "Fee_Paid": "false"},
+        ]
+        assert find_member("이영희") is None
 
     def test_add_member_success(self, mock_spreadsheet):
         """회원 추가 성공."""
-        mock_spreadsheet["members"].col_values.return_value = ["Name", "홍길동"]
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "홍길동", "PIN": "0000", "Fee_Paid": "false"},
+        ]
         result = add_member("김철수")
         assert result is True
-        mock_spreadsheet["members"].append_row.assert_called_once_with(["김철수"])
+        mock_spreadsheet["members"].append_row.assert_called_once_with(
+            ["김철수", "0000", "false"], value_input_option="RAW"
+        )
 
     def test_add_member_duplicate(self, mock_spreadsheet):
         """중복 회원 추가 -> False."""
-        mock_spreadsheet["members"].col_values.return_value = ["Name", "홍길동"]
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "홍길동", "PIN": "0000", "Fee_Paid": "false"},
+        ]
         result = add_member("홍길동")
         assert result is False
         mock_spreadsheet["members"].append_row.assert_not_called()

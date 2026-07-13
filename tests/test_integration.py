@@ -73,7 +73,7 @@ def _mock_response(html: str, status_code: int = 200) -> MagicMock:
     resp.raise_for_status = MagicMock()
     if status_code >= 400:
         resp.raise_for_status.side_effect = requests_lib.exceptions.HTTPError(
-            f"{status_code} Error"
+            f"{status_code} Error", response=resp
         )
     return resp
 
@@ -134,12 +134,11 @@ class TestMemberOrderFlow:
     def test_full_order_lifecycle(self, mock_spreadsheet):
         """회원 확인 → 설정 조회 → 스크래핑 → 주문 추가 → 주문 조회 → 정산 → 삭제."""
         # 1. 회원 존재 확인
-        mock_spreadsheet["members"].col_values.return_value = [
-            "Name",
-            "홍길동",
-            "김철수",
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "홍길동", "PIN": "0000", "Fee_Paid": "false"},
+            {"Name": "김철수", "PIN": "0000", "Fee_Paid": "false"},
         ]
-        assert find_member("홍길동") is True
+        assert find_member("홍길동") is not None
 
         # 2. 설정 조회 — 주문 가능 상태
         mock_spreadsheet["config"].get_all_records.return_value = _config_records()
@@ -445,15 +444,15 @@ class TestScrapingFailures:
         """HTTP 404 → ScrapingError."""
         mock_get.return_value = _mock_response("", status_code=404)
 
-        with pytest.raises(ScrapingError, match="HTTP 요청 실패"):
+        with pytest.raises(ScrapingError, match="HTTP 404 오류"):
             scrape_book_info("https://www.yes24.com/Product/Goods/99999999")
 
     @patch("utils.scraper.requests.get")
     def test_timeout_raises_scraping_error(self, mock_get):
         """타임아웃 → ScrapingError."""
-        mock_get.side_effect = requests_lib.exceptions.Timeout("timeout")
+        mock_get.side_effect = requests_lib.exceptions.ReadTimeout("timeout")
 
-        with pytest.raises(ScrapingError, match="시간 초과"):
+        with pytest.raises(ScrapingError, match="읽기 타임아웃"):
             scrape_book_info("https://www.yes24.com/Product/Goods/99999999")
 
     @patch("utils.scraper.requests.get")

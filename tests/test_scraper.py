@@ -33,7 +33,7 @@ def _mock_response(html: str, status_code: int = 200) -> MagicMock:
     resp.raise_for_status = MagicMock()
     if status_code >= 400:
         resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
-            f"{status_code} Error"
+            f"{status_code} Error", response=resp
         )
     return resp
 
@@ -125,7 +125,7 @@ class TestScrapeBookInfoNormal:
 
     @patch("utils.scraper.requests.get")
     def test_uses_timeout(self, mock_get):
-        """timeout=10을 설정한다"""
+        """timeout=30을 설정한다"""
         html = _load_fixture("yes24_normal.html")
         mock_get.return_value = _mock_response(html)
 
@@ -133,7 +133,7 @@ class TestScrapeBookInfoNormal:
 
         call_kwargs = mock_get.call_args
         timeout = call_kwargs.kwargs.get("timeout", call_kwargs[1].get("timeout"))
-        assert timeout == 10
+        assert timeout == 30
 
 
 class TestScrapeBookInfoSoldout:
@@ -184,15 +184,15 @@ class TestScrapeBookInfoErrors:
         """HTTP 오류 시 ScrapingError 발생"""
         mock_get.return_value = _mock_response("", status_code=404)
 
-        with pytest.raises(ScrapingError, match="HTTP 요청 실패"):
+        with pytest.raises(ScrapingError, match="HTTP 404 오류"):
             scrape_book_info("https://www.yes24.com/Product/Goods/99999999")
 
     @patch("utils.scraper.requests.get")
     def test_timeout_error(self, mock_get):
-        """타임아웃 시 ScrapingError 발생"""
-        mock_get.side_effect = requests.exceptions.Timeout("timeout")
+        """읽기 타임아웃 시 ScrapingError 발생"""
+        mock_get.side_effect = requests.exceptions.ReadTimeout("timeout")
 
-        with pytest.raises(ScrapingError, match="시간 초과"):
+        with pytest.raises(ScrapingError, match="읽기 타임아웃"):
             scrape_book_info("https://www.yes24.com/Product/Goods/99999999")
 
     @patch("utils.scraper.requests.get")
@@ -200,7 +200,7 @@ class TestScrapeBookInfoErrors:
         """연결 실패 시 ScrapingError 발생"""
         mock_get.side_effect = requests.exceptions.ConnectionError("fail")
 
-        with pytest.raises(ScrapingError, match="HTTP 요청 실패"):
+        with pytest.raises(ScrapingError, match="연결 오류"):
             scrape_book_info("https://www.yes24.com/Product/Goods/99999999")
 
     def test_invalid_url(self):
