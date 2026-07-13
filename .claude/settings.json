@@ -20,6 +20,19 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/run_pytest.sh\"",
+            "timeout": 60,
+            "statusMessage": "pytest 실행 중..."
+          }
+        ]
+      }
     ]
   }
 }
