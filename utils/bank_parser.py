@@ -101,6 +101,7 @@ def match_deposits_to_members(
     정확히 일치하는 회원을 우선 찾고, 없으면 부분 포함 매칭으로 넘어간다.
     어느 단계든 후보가 2명 이상이면 오매칭 대신 미매칭으로 처리한다.
     (예: 회원 '김민'과 '김민수'가 함께 있을 때 적요 '김민수님')
+    이름이 비어 있으면 어느 쪽이든 매칭하지 않는다.
 
     Returns:
         matched: {member_name: {"deposit": int, "withdrawal": int, "net": int}}
@@ -115,10 +116,16 @@ def match_deposits_to_members(
     for tx in transactions:
         clean = _normalize_name(tx["depositor_clean"])
 
-        # 정확 일치 우선, 없으면 부분 포함 매칭
-        candidates = [m for m, n in normalized_members if n == clean]
-        if not candidates:
-            candidates = [m for m, n in normalized_members if n in clean or clean in n]
+        # 빈 이름은 모든 이름의 부분 문자열이 되어 아무 회원에게나 붙으므로 매칭 제외
+        # (적요에 은행 정보만 있는 경우 depositor_clean이 빈 문자열이 된다)
+        candidates: list[str] = []
+        if clean:
+            # 정확 일치 우선, 없으면 부분 포함 매칭
+            candidates = [m for m, n in normalized_members if n == clean]
+            if not candidates:
+                candidates = [
+                    m for m, n in normalized_members if n and (n in clean or clean in n)
+                ]
 
         found = candidates[0] if len(candidates) == 1 else None
 

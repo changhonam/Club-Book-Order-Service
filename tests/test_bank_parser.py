@@ -209,6 +209,53 @@ class TestMatchDepositsToMembers:
         assert matched["홍길동"]["net"] == 30000
         assert unmatched == []
 
+    def test_empty_name_not_matched_to_sole_member(self):
+        """이름 없는 적요는 회원이 1명뿐이어도 귀속하지 않음
+
+        빈 문자열은 모든 이름의 부분 문자열이므로 가드가 없으면
+        정체불명 입금이 유일한 후보에게 자동 귀속된다.
+        """
+        matched, unmatched = match_deposits_to_members(
+            [self.tx("", deposit=30000)],
+            ["홍길동"],
+        )
+
+        assert matched == {}
+        assert len(unmatched) == 1
+        assert unmatched[0]["candidates"] == []
+
+    def test_empty_name_not_matched_with_many_members(self):
+        """회원이 여러 명일 때도 이름 없는 적요는 후보를 만들지 않음"""
+        matched, unmatched = match_deposits_to_members(
+            [self.tx("", deposit=30000)],
+            ["홍길동", "김철수", "이영희"],
+        )
+
+        assert matched == {}
+        assert unmatched[0]["candidates"] == []
+
+    def test_empty_member_name_ignored(self):
+        """회원 명단에 빈 이름이 있어도 다른 사람의 입금을 가로채지 않음"""
+        matched, unmatched = match_deposits_to_members(
+            [self.tx("홍길동님", deposit=30000)],
+            ["", "홍길동"],
+        )
+
+        assert matched == {"홍길동": {"deposit": 30000, "withdrawal": 0, "net": 30000}}
+        assert unmatched == []
+
+    def test_bank_info_only_deposit_end_to_end(self):
+        """적요에 은행 정보만 있는 입금은 파싱~매칭 전 구간에서 미매칭 처리"""
+        txs = parse_hana_bank_excel(
+            make_excel([["((신한은행-오픈뱅킹))", None, 30000]])
+        )
+        assert txs[0]["depositor_clean"] == ""
+
+        matched, unmatched = match_deposits_to_members(txs, ["홍길동"])
+
+        assert matched == {}
+        assert unmatched[0]["depositor"] == "((신한은행-오픈뱅킹))"
+
     def test_unmatched_deposit_reported(self):
         """매칭되지 않은 입금은 unmatched로 반환"""
         matched, unmatched = match_deposits_to_members(
