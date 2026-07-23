@@ -21,9 +21,8 @@
         ]
       }
     ],
-    "PostToolUse": [
+    "PostToolBatch": [
       {
-        "matcher": "Edit|Write",
         "hooks": [
           {
             "type": "command",
