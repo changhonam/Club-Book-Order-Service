@@ -587,10 +587,13 @@ with tab5:
                 result_rows = []
                 for _name in verify_members:
                     exp = expected[_name]
-                    actual = matched.get(_name, 0)
+                    summary = matched.get(_name)
+                    deposited = summary["deposit"] if summary else 0
+                    withdrawn = summary["withdrawal"] if summary else 0
+                    actual = deposited - withdrawn
                     if exp == 0:
                         status = "— 해당없음"
-                    elif actual == 0:
+                    elif deposited == 0:
                         status = "❌ 미입금"
                     elif actual < exp:
                         status = f"❌ 부족 ({actual:,}/{exp:,}원)"
@@ -602,23 +605,39 @@ with tab5:
                         {
                             "회원": _name,
                             "본인부담금": f"{exp:,}원",
-                            "실입금액": f"{actual:,}원" if actual > 0 else "—",
+                            "입금액": f"{deposited:,}원" if deposited > 0 else "—",
+                            "출금액": f"{withdrawn:,}원" if withdrawn > 0 else "—",
+                            "순입금액": f"{actual:,}원"
+                            if deposited or withdrawn
+                            else "—",
                             "결과": status,
                         }
                     )
 
                 st.markdown("#### 검증 결과")
+                st.caption(
+                    "순입금액 = 입금액 - 출금액 (환불·반환 등 해당 회원 앞으로 나간 "
+                    "출금 내역을 차감한 금액을 본인부담금과 비교합니다.)"
+                )
                 st.dataframe(pd.DataFrame(result_rows), width="stretch")
 
                 if unmatched:
                     st.markdown("#### 미매칭 입금")
-                    st.caption("회원으로 식별되지 않은 입금 내역입니다.")
+                    st.caption(
+                        "회원으로 식별되지 않은 입금 내역입니다. "
+                        "후보가 여러 명이면 오매칭을 막기 위해 자동 매칭하지 않으니 "
+                        "직접 확인해 주세요."
+                    )
                     st.dataframe(
                         pd.DataFrame(
                             [
                                 {
                                     "입금자명": d["depositor"],
-                                    "입금액": f"{d['amount']:,}원",
+                                    "입금액": f"{d['deposit']:,}원",
+                                    "비고": "후보 여러 명: "
+                                    + ", ".join(d["candidates"])
+                                    if d["candidates"]
+                                    else "—",
                                 }
                                 for d in unmatched
                             ]
