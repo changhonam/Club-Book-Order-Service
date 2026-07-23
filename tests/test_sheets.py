@@ -1,55 +1,17 @@
-"""Google Sheets CRUD 모듈 테스트"""
+"""Google Sheets CRUD 모듈 테스트
 
-import sys
+streamlit mock은 conftest.py에서 설정한다.
+"""
+
 from unittest.mock import MagicMock, patch
 
+import gspread
+import gspread.exceptions
 import pytest
 
-# --- 모듈 import 전 mock 설정 ---
-
-# streamlit mock
-_mock_st = MagicMock()
-
-
-def _passthrough_cache_data(**kwargs):
-    """st.cache_data를 투명 데코레이터로 대체."""
-
-    def decorator(func):
-        func.clear = MagicMock()
-        return func
-
-    return decorator
-
-
-def _passthrough_cache_resource(func):
-    """st.cache_resource를 투명 데코레이터로 대체."""
-    func.clear = MagicMock()
-    return func
-
-
-_mock_st.cache_data = _passthrough_cache_data
-_mock_st.cache_resource = _passthrough_cache_resource
-_mock_st.secrets = {
-    "gcp_service_account": {"type": "service_account"},
-    "spreadsheet": {"name": "TestSpreadsheet"},
-}
-
-sys.modules["streamlit"] = _mock_st
-
-# google.oauth2.service_account mock - gspread보다 먼저 설정하면 안 되므로,
-# gspread를 먼저 import한 뒤에 utils.sheets의 google.oauth2만 mock 처리
-
-import gspread  # noqa: E402
-import gspread.exceptions  # noqa: E402
-
-from utils import ConfigRecord, MemberRecord, OrderRecord  # noqa: E402
-
-# google.oauth2.service_account.Credentials mock (utils.sheets에서 사용)
-_real_google = sys.modules.get("google")
-
-import utils.sheets as _sheets_mod  # noqa: E402
-
-from utils.sheets import (  # noqa: E402
+import utils.sheets as _sheets_mod
+from utils import ConfigRecord, MemberRecord, OrderRecord
+from utils.sheets import (
     add_member,
     add_order,
     append_log,

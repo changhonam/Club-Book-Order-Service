@@ -5,49 +5,20 @@ sheets.py 함수는 Google Sheets mock, scraper.py 함수는 requests mock 처�
 settlement.py 함수는 순수 함수이므로 mock 불필요.
 """
 
-import sys
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests as requests_lib
 
-# --- 모듈 import 전 streamlit mock 설정 (test_sheets.py 패턴 동일) ---
-
-_mock_st = MagicMock()
-
-
-def _passthrough_cache_data(**kwargs):
-    def decorator(func):
-        func.clear = MagicMock()
-        return func
-
-    return decorator
-
-
-def _passthrough_cache_resource(func):
-    func.clear = MagicMock()
-    return func
-
-
-_mock_st.cache_data = _passthrough_cache_data
-_mock_st.cache_resource = _passthrough_cache_resource
-_mock_st.secrets = {
-    "gcp_service_account": {"type": "service_account"},
-    "spreadsheet": {"name": "TestSpreadsheet"},
-}
-
-sys.modules["streamlit"] = _mock_st
-
-import requests as requests_lib  # noqa: E402
-
-from utils import OrderRecord  # noqa: E402
-from utils.scraper import ScrapingError, scrape_book_info  # noqa: E402
-from utils.settlement import (  # noqa: E402
+from utils import OrderRecord
+from utils.scraper import ScrapingError, scrape_book_info
+from utils.settlement import (
     calculate_monthly_payment,
     calculate_per_order_breakdown,
 )
-from utils.sheets import (  # noqa: E402
+from utils.sheets import (
     add_order,
     delete_order,
     find_member,

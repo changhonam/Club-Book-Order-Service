@@ -1,8 +1,45 @@
-"""공통 테스트 fixture"""
+"""공통 테스트 fixture 및 streamlit mock 설정
+
+utils.sheets는 import 시점에 @st.cache_data / @st.cache_resource 데코레이터를
+평가하므로, 그 전에 streamlit을 mock으로 대체해야 한다. conftest.py는 어떤
+테스트 모듈보다 먼저 로드되므로 여기서 처리하면 수집 순서와 무관하게 동작한다.
+(각 테스트 파일에 두면 mock 없이 utils.sheets를 import하는 파일이 먼저 수집될
+경우 실제 캐시가 걸려 원인을 찾기 어려운 실패가 난다.)
+"""
+
+import sys
+from unittest.mock import MagicMock
 
 import pytest
 
-from utils import BookInfo, ConfigRecord, OrderRecord
+
+def _passthrough_cache_data(**kwargs):
+    """st.cache_data를 투명 데코레이터로 대체."""
+
+    def decorator(func):
+        func.clear = MagicMock()
+        return func
+
+    return decorator
+
+
+def _passthrough_cache_resource(func):
+    """st.cache_resource를 투명 데코레이터로 대체."""
+    func.clear = MagicMock()
+    return func
+
+
+_mock_st = MagicMock()
+_mock_st.cache_data = _passthrough_cache_data
+_mock_st.cache_resource = _passthrough_cache_resource
+_mock_st.secrets = {
+    "gcp_service_account": {"type": "service_account"},
+    "spreadsheet": {"name": "TestSpreadsheet"},
+}
+
+sys.modules["streamlit"] = _mock_st
+
+from utils import BookInfo, ConfigRecord, OrderRecord  # noqa: E402
 
 
 @pytest.fixture

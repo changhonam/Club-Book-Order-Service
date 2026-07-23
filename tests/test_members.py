@@ -10,44 +10,12 @@ Requirements tested:
 7. Members with fee_paid=false cannot submit orders (can_modify=false)
 """
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# --- 모듈 import 전 streamlit mock 설정 ---
-
-_mock_st = MagicMock()
-
-
-def _passthrough_cache_data(**kwargs):
-    """st.cache_data를 투명 데코레이터로 대체."""
-
-    def decorator(func):
-        func.clear = MagicMock()
-        return func
-
-    return decorator
-
-
-def _passthrough_cache_resource(func):
-    """st.cache_resource를 투명 데코레이터로 대체."""
-    func.clear = MagicMock()
-    return func
-
-
-_mock_st.cache_data = _passthrough_cache_data
-_mock_st.cache_resource = _passthrough_cache_resource
-_mock_st.secrets = {
-    "gcp_service_account": {"type": "service_account"},
-    "spreadsheet": {"name": "TestSpreadsheet"},
-}
-
-sys.modules["streamlit"] = _mock_st
-
-
-from utils import MemberRecord  # noqa: E402
-from utils.sheets import (  # noqa: E402
+from utils import MemberRecord
+from utils.sheets import (
     add_member,
     find_member,
     get_all_members,
