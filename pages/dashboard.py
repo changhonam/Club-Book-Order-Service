@@ -88,10 +88,20 @@ my_orders = get_orders_by_member(user_name, selected_month)
 total_price = sum(o.price for o in my_orders)
 settlement = calculate_monthly_payment(total_price)
 
+# 본인 부담금 라벨·금액 강조 색상 적용
+st.markdown(
+    "<style>"
+    ".st-key-metric_user_payment [data-testid='stMetricValue'],"
+    ".st-key-metric_user_payment [data-testid='stMetricLabel'] { color: #0d6efd; }"
+    "</style>",
+    unsafe_allow_html=True,
+)
+
 col1, col2, col3 = st.columns(3)
 col1.metric("총 신청금액", f"{settlement.total_price:,}원")
 col2.metric("동호회 지원금", f"{settlement.club_support:,}원")
-col3.metric("본인 부담금", f"{settlement.user_payment:,}원")
+with col3.container(key="metric_user_payment"):
+    st.metric("본인 부담금", f"{settlement.user_payment:,}원")
 
 if settlement.user_payment > 0:
     is_paid = get_payment_status(user_name, selected_month)
