@@ -1,5 +1,6 @@
 """Yes24 도서 정보 스크래핑 모듈"""
 
+import logging
 import re
 from urllib.parse import urlparse
 
@@ -8,6 +9,8 @@ import streamlit as st
 from bs4 import BeautifulSoup
 
 from utils import BookInfo
+
+logger = logging.getLogger(__name__)
 
 SCRAPINGBEE_ENDPOINT = "https://app.scrapingbee.com/api/v1/"
 
@@ -46,8 +49,50 @@ _RE_GOODS_ID = re.compile(r"/(?:Product/)?Goods/(?:Detail/)?(\d+)", re.IGNORECAS
 _VALID_HOSTS = {"www.yes24.com", "m.yes24.com", "yes24.com"}
 
 
+# 실패 응답 본문을 로그에 남길 때의 최대 길이
+ERROR_BODY_MAX_CHARS = 1000
+
+
 class ScrapingError(Exception):
     """스크래핑 실패 시 발생하는 예외"""
+
+
+# ---------------------------------------------------------------------------
+# 진단 로깅 (UI에는 노출하지 않고 서버 로그로만 남긴다)
+# ---------------------------------------------------------------------------
+def _spb_headers(response) -> dict:
+    """ScrapingBee 진단 헤더(Spb-*)만 추출한다.
+
+    Spb-Cost(소모 크레딧), Spb-Initial-Status-Code(타깃 사이트 응답 코드),
+    Spb-Resolved-Url 등이 실패 원인 판별의 핵심 단서다.
+    """
+    try:
+        return {
+            k: v for k, v in response.headers.items() if k.lower().startswith("spb-")
+        }
+    except (AttributeError, TypeError):
+        return {}
+
+
+def _log_failed_response(response, mode: str, target_url: str) -> None:
+    """HTTP 오류 응답의 상세 내용을 로그로 남긴다.
+
+    ScrapingBee 경유 시 요청 URL에는 api_key가 포함되므로 절대 로깅하지 않고,
+    스크래핑 대상 URL과 응답 본문/진단 헤더만 기록한다.
+    """
+    try:
+        body = (response.text or "")[:ERROR_BODY_MAX_CHARS].replace("\n", " ")
+    except (AttributeError, TypeError):
+        body = "<본문 없음>"
+
+    logger.error(
+        "[scraper] 요청 실패 status=%s mode=%s target=%s spb=%s body=%s",
+        getattr(response, "status_code", "?"),
+        mode,
+        target_url,
+        _spb_headers(response),
+        body,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -249,11 +294,8 @@ def scrape_book_info(url: str) -> BookInfo:
 
     headers = {"User-Agent": USER_AGENT}
     api_key = _get_scraper_api_key()
-    print(
-        f"[scraper] mode={'scrapingbee(kr)' if api_key else 'direct'} "
-        f"url={normalized_url}",
-        flush=True,
-    )
+    mode = "scrapingbee(kr)" if api_key else "direct"
+    logger.info("[scraper] 요청 시작 mode=%s url=%s", mode, normalized_url)
 
     try:
         if api_key:
@@ -271,9 +313,11 @@ def scrape_book_info(url: str) -> BookInfo:
             response = requests.get(
                 normalized_url, headers=headers, timeout=REQUEST_TIMEOUT
             )
-        print(
-            f"[scraper] status={response.status_code} len={len(response.content)}",
-            flush=True,
+        logger.info(
+            "[scraper] 응답 수신 status=%s len=%s spb=%s",
+            response.status_code,
+            len(response.content),
+            _spb_headers(response),
         )
         response.raise_for_status()
     except requests.exceptions.ConnectTimeout as e:
@@ -289,6 +333,8 @@ def scrape_book_info(url: str) -> BookInfo:
             f"연결 오류(DNS/TLS/RST 등): {type(e).__name__}: {e}"
         ) from e
     except requests.exceptions.HTTPError as e:
+        if e.response is not None:
+            _log_failed_response(e.response, mode, normalized_url)
         status = e.response.status_code if e.response is not None else "?"
         raise ScrapingError(f"HTTP {status} 오류: {normalized_url}") from e
     except requests.exceptions.RequestException as e:

@@ -1,5 +1,6 @@
 """독서동호회 도서 구매 신청 서비스 - 메인 앱"""
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -10,6 +11,15 @@ import streamlit as st
 from utils.navigation import build_page_list
 from utils.sheets import append_log, get_config, update_config
 from utils.sidebar import init_session_state, render_sidebar
+
+# --- 로깅 설정 ---
+# 루트는 WARNING으로 두어 외부 라이브러리 소음을 막고, 자체 모듈만 INFO로 올린다.
+# (utils 로거의 레코드는 루트 레벨과 무관하게 루트 핸들러로 전파된다.)
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logging.getLogger("utils").setLevel(logging.INFO)
 
 # --- 페이지 설정 ---
 st.set_page_config(
@@ -25,7 +35,9 @@ init_session_state()
 config = get_config()
 if config.auto_close_datetime and not config.is_closed:
     try:
-        auto_close_dt = datetime.strptime(config.auto_close_datetime, "%Y-%m-%d %H:%M").replace(tzinfo=KST)
+        auto_close_dt = datetime.strptime(
+            config.auto_close_datetime, "%Y-%m-%d %H:%M"
+        ).replace(tzinfo=KST)
         if datetime.now(KST) >= auto_close_dt:
             update_config(is_closed=True)
             append_log(
