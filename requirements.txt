@@ -1,8 +1,15 @@
 streamlit>=1.42.0
 gspread>=6.0.0
 google-auth>=2.25.0
-pandas>=2.1.0
+# pandas 3.x는 파괴적 변경이 많아 2.x로 고정 (Python 3.14용 휠은 2.3.3부터 제공)
+pandas>=2.1.0,<3
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 openpyxl>=3.1.0
 xlrd>=2.0.1
+# scripts/setup_sheets.py가 secrets.toml을 직접 읽을 때 사용
+toml>=0.10
+
+# 개발용
+pytest>=8.0.0
+ruff>=0.6.0

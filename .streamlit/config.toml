@@ -6,6 +6,19 @@ textColor = "#262730"
 
 [server]
 headless = true
+# oauth2-proxy(같은 컨테이너)만 접근하면 되므로 loopback에만 바인딩한다.
+# 0.0.0.0으로 두면 172.17.0.3:8501로 프록시를 우회한 직접 접근이 열린다.
+address = "127.0.0.1"
+port = 8501
+# oauth2-proxy는 경로 프리픽스를 벗기지 않고 그대로 전달하므로
+# Streamlit이 직접 /bdbd/ 아래에서 서비스해야 한다.
+baseUrlPath = "bdbd"
+# 리버스 프록시 뒤에서는 비활성화한다
+enableCORS = false
+enableXsrfProtection = false
+enableWebsocketCompression = false
+# 운영 환경에서는 소스 감시가 불필요하다
+fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false

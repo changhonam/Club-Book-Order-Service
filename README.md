@@ -15,7 +15,7 @@
 |------|------|
 | Framework | Python + Streamlit |
 | Database | Google Sheets (gspread) |
-| Hosting | Streamlit Community Cloud |
+| Hosting | 사내 컨테이너 (oauth2-proxy 경유) |
 | Scraping | requests + BeautifulSoup4 |
 | Export | openpyxl (Excel) |
 | Test | pytest |
@@ -42,13 +42,26 @@
 
 ### 2. 의존성 설치
 
+시스템 Python이 PEP 668(`externally-managed-environment`)로 보호되는 환경에서는 가상환경을 사용합니다.
+
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
 ```
 
 ### 3. secrets.toml 설정
 
-`.streamlit/secrets.toml` 파일을 생성하고 아래 내용을 채웁니다. (이 파일은 `.gitignore`에 포함되어 있어 커밋되지 않습니다.)
+Streamlit은 **프로젝트 로컬 → 사용자 전역** 순으로 secrets를 찾습니다.
+
+| 위치 | 용도 |
+|------|------|
+| `~/.streamlit/secrets.toml` | **운영 권장.** 저장소 밖에 있어 브랜치 전환·워크트리 생성에도 자격증명이 유지됩니다. |
+| `<프로젝트>/.streamlit/secrets.toml` | 다른 자격증명으로 테스트할 때. 존재하면 전역보다 우선합니다. |
+
+```bash
+mkdir -p ~/.streamlit
+cp .streamlit/secrets.toml.example ~/.streamlit/secrets.toml
+chmod 600 ~/.streamlit/secrets.toml
+```
 
 ```toml
 [gcp_service_account]
@@ -75,6 +88,9 @@ password = "관리자 비밀번호"
 - `[spreadsheet].name`: 생성한 Google Sheets 스프레드시트 이름과 동일하게 입력
 - `[admin].name`: Members 시트에 등록된 관리자 이름과 동일하게 입력
 - `[admin].password`: 관리자 로그인 시 사용할 비밀번호
+- `SCRAPER_API_KEY`(선택): ScrapingBee 우회 키. **사내 컨테이너 호스팅에서는 설정하지 않습니다.**
+  키가 없으면 `utils/scraper.py`가 자동으로 Yes24 직접 요청(direct 모드)으로 동작합니다.
+  Yes24가 해외 IP를 차단하므로 해외 호스팅에서만 필요했던 값입니다.
 
 ### 4. Google Sheets 초기 설정
 
@@ -97,10 +113,13 @@ python scripts/setup_sheets.py
 ### 5. 앱 실행
 
 ```bash
-streamlit run app.py
+scripts/start_server.sh
 ```
 
-브라우저에서 `http://localhost:8501`로 접속합니다.
+중지는 `scripts/stop_server.sh`, 로그는 `logs/app.log`에서 확인합니다.
+
+로컬에서 프록시 없이 띄워볼 때는 `.streamlit/config.toml`의 `baseUrlPath` 때문에
+`http://localhost:8501/bdbd/`로 접속해야 합니다.
 
 ## 프로젝트 구조
 
@@ -132,7 +151,8 @@ streamlit run app.py
 │   ├── PRD.md                  # 제품 요구사항 정의서
 │   └── TRD.md                  # 기술 요구사항 정의서
 ├── .streamlit/
-│   ├── config.toml             # Streamlit 테마/서버 설정
+│   ├── config.toml             # Streamlit 테마/서버 설정 (baseUrlPath, loopback 바인딩)
+│   ├── secrets.toml.example    # secrets 템플릿
 │   └── secrets.toml            # 인증 정보 (gitignore 대상)
 └── requirements.txt
 ```
@@ -147,12 +167,53 @@ streamlit run app.py
 - 동호회가 총액의 50%를 지원하되, 월 최대 30,000원까지 지원
 - 여러 건 신청 시 지원금은 각 주문의 가격 비율에 따라 배분
 
-## 배포 (Streamlit Community Cloud)
+## 배포 (사내 컨테이너)
 
-1. GitHub에 코드 푸시 (secrets.toml 제외)
-2. [Streamlit Community Cloud](https://share.streamlit.io/)에서 앱 생성
-3. GitHub 저장소 연결 후 `app.py`를 메인 파일로 지정
-4. **Advanced settings > Secrets**에 `secrets.toml` 내용을 붙여넣기
+Yes24가 해외 서버 IP와 프록시 경유 접근을 모두 차단하여, Streamlit Community Cloud에서는
+도서 정보 조회가 동작하지 않습니다. 그래서 국내 IP를 쓰는 사내 컨테이너에서 직접 호스팅합니다.
+
+### 구성
+
+```
+사용자 → https://fdfwtools.vieworks.com/bdbd/
+       → 호스트 nginx → oauth2-proxy (:7000 평문 / :7443 TLS)
+       → 이 앱 127.0.0.1:8501/bdbd/
+       → Yes24 직접 요청 (국내 IP)
+```
+
+- oauth2-proxy는 경로 프리픽스를 **벗기지 않고 그대로 전달**하므로, 이 앱이 직접 `/bdbd/`
+  아래에서 서비스합니다. 관련 설정은 `.streamlit/config.toml`의 `baseUrlPath`입니다.
+- 프록시를 우회한 직접 접근을 막기 위해 `address = "127.0.0.1"`로 loopback에만 바인딩합니다.
+
+### 배포 절차
+
+1. venv 생성 및 의존성 설치 (위 "2. 의존성 설치")
+2. `.streamlit/secrets.toml` 작성 (위 "3. secrets.toml 설정", `SCRAPER_API_KEY` 제외)
+3. `scripts/start_server.sh` 실행
+4. oauth2-proxy에 라우트 등록 — `/opt/fdfwtools/start.sh`의 `ARGS` 배열에 아래 3줄 추가 후
+   oauth2-proxy 재기동 (**root 권한 필요**)
+
+   ```bash
+   --upstream="http://127.0.0.1:8501/bdbd"
+   --upstream="http://127.0.0.1:8501/bdbd/"
+   --skip-auth-route="^/bdbd"
+   ```
+
+   **`upstream`이 2줄인 이유**: oauth2-proxy는 경로가 `/`로 끝나면 prefix 매칭,
+   아니면 정확 매칭으로 등록합니다. `/bdbd/` 하나만 두면 트레일링 슬래시가 없는
+   `/bdbd` 요청이 이 라우트에 걸리지 않고 catch-all(app1)로 흘러가 app1의 404가 뜹니다.
+   정확 매칭 라우트를 함께 등록하면 `/bdbd`가 이 앱에 도달해
+   `https://fdfwtools.vieworks.com/bdbd/`로 307 리다이렉트됩니다.
+
+   `skip-auth-route`도 같은 이유로 `^/bdbd/`가 아닌 `^/bdbd`여야 합니다.
+   (`^/dfpdqa/`로 등록된 기존 라우트는 `/dfpdqa` 접근 시 SSO로 튕깁니다.)
+
+   이 서비스는 SSO를 적용하지 않고 앱 자체의 이름+PIN 인증만 사용합니다.
+
+### 컨테이너 재시작 시
+
+컨테이너에 systemd/cron이 없고 PID 1이 `sleep`이라 자동 기동되지 않습니다.
+재시작 후에는 `scripts/start_server.sh`를 다시 실행해야 합니다.
 
 ## 테스트
 

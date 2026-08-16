@@ -1,5 +1,7 @@
 """Google Sheets 초기 설정 스크립트 - 워크시트 및 헤더 자동 생성."""
 
+from pathlib import Path
+
 import toml
 import gspread
 from google.oauth2.service_account import Credentials
@@ -8,11 +10,26 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
 ]
-SECRETS_PATH = ".streamlit/secrets.toml"
+
+# Streamlit과 동일한 탐색 순서: 프로젝트 로컬 우선, 없으면 사용자 전역.
+# 전역(~/.streamlit/secrets.toml)에 두면 브랜치·워크트리를 옮겨도 자격증명이 유지된다.
+SECRETS_PATHS = (
+    Path(".streamlit/secrets.toml"),
+    Path.home() / ".streamlit" / "secrets.toml",
+)
+
+
+def _load_secrets() -> dict:
+    for path in SECRETS_PATHS:
+        if path.is_file():
+            print(f"secrets 로드: {path}")
+            return toml.load(path)
+    searched = "\n  ".join(str(p) for p in SECRETS_PATHS)
+    raise SystemExit(f"secrets.toml을 찾을 수 없습니다. 탐색 위치:\n  {searched}")
 
 
 def setup():
-    secrets = toml.load(SECRETS_PATH)
+    secrets = _load_secrets()
     creds = Credentials.from_service_account_info(
         secrets["gcp_service_account"],
         scopes=SCOPES,

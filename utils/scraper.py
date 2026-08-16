@@ -280,7 +280,7 @@ def scrape_book_info(url: str) -> BookInfo:
     """Yes24 URL에서 도서 정보를 스크래핑.
 
     - User-Agent 헤더 설정
-    - 타임아웃 10초
+    - 타임아웃 30초
     - '판매가' 기준 가격 파싱 (크레마머니 제외)
     - 품절/절판/eBook 판별
 

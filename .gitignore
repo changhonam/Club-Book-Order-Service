@@ -21,6 +21,9 @@ env/
 # Streamlit
 .streamlit/secrets.toml
 
+# 서버 로그 (scripts/start_server.sh)
+logs/
+
 # OS
 .DS_Store
 Thumbs.db
