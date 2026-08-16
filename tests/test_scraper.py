@@ -14,6 +14,7 @@ import utils.scraper as _scraper_mod
 from utils.scraper import ScrapingError, normalize_yes24_url, scrape_book_info
 
 _extract_isbn = _scraper_mod._extract_isbn
+_extract_author = _scraper_mod._extract_author
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -134,6 +135,108 @@ class TestScrapeBookInfoNormal:
         call_kwargs = mock_get.call_args
         timeout = call_kwargs.kwargs.get("timeout", call_kwargs[1].get("timeout"))
         assert timeout == 30
+
+
+class TestScrapeBookInfoUsed:
+    """중고도서 파싱 테스트 (저자가 링크가 아닌 일반 텍스트)"""
+
+    @patch("utils.scraper.requests.get")
+    def test_parse_used_book(self, mock_get):
+        """중고도서에서 출판사를 저자로 잘못 읽지 않는다"""
+        html = _load_fixture("yes24_used.html")
+        mock_get.return_value = _mock_response(html)
+
+        book = scrape_book_info("https://www.yes24.com/Product/Goods/123456789")
+
+        assert book.title == "하룻밤에 읽는 성서이야기"
+        assert book.author == "이쿠타 사토시"
+        assert book.publisher == "랜덤하우스코리아"
+        assert book.price == 4500  # 중고판매가
+        assert book.is_available is True
+        assert book.unavailable_reason is None
+        assert book.isbn == "9788959131365"
+
+
+class TestExtractAuthor:
+    """저자 추출 헬퍼 함수 테스트"""
+
+    @staticmethod
+    def _soup(pub_area_html: str):
+        from bs4 import BeautifulSoup
+
+        return BeautifulSoup(
+            f"<html><body>{pub_area_html}</body></html>", "html.parser"
+        )
+
+    def test_plain_text_author(self):
+        """중고도서: gd_auth가 텍스트, gd_pub만 링크"""
+        soup = self._soup(
+            """
+            <span class="gd_pubArea">
+                <span class="gd_auth">이쿠타 사토시</span>
+                <em class="divi">|</em>
+                <span class="gd_pub"><a href="#">랜덤하우스코리아</a></span>
+                <em class="divi">|</em>
+                <span class="gd_date">2003년 11월 06일</span>
+            </span>
+            """
+        )
+        assert _extract_author(soup, "랜덤하우스코리아") == "이쿠타 사토시"
+
+    def test_linked_author_in_gd_auth(self):
+        """일반 도서: gd_auth 안의 저자 링크를 사용한다"""
+        soup = self._soup(
+            """
+            <span class="gd_pubArea">
+                <span class="gd_auth"><a href="#">한강</a> 저</span>
+                <em class="divi">|</em>
+                <span class="gd_pub"><a href="#">창비</a></span>
+                <em class="divi">|</em>
+                <span class="gd_date">2014년 05월 19일</span>
+                <span class="gd_orgin">번역서 : <a href="#">Human Acts</a></span>
+            </span>
+            """
+        )
+        assert _extract_author(soup, "창비") == "한강"
+
+    def test_role_suffix_stripped_from_plain_text(self):
+        """텍스트 저자의 역할 표기('저 / 역')를 제거한다"""
+        soup = self._soup(
+            """
+            <span class="gd_pubArea">
+                <span class="gd_auth">마르쿠스 핫슈타인 저 / 김지원 역</span>
+                <em class="divi">|</em>
+                <span class="gd_pub"><a href="#">수막새</a></span>
+            </span>
+            """
+        )
+        assert _extract_author(soup, "수막새") == "마르쿠스 핫슈타인"
+
+    def test_gd_auth_absent_uses_non_publisher_link(self):
+        """gd_auth가 없는 마크업이면 출판사 링크를 제외한 첫 링크를 쓴다"""
+        soup = self._soup(
+            """
+            <span class="gd_pubArea">
+                <a href="#">로버트 C. 마틴</a> 저
+                <span class="gd_pub"><a href="#">인사이트</a></span>
+            </span>
+            """
+        )
+        assert _extract_author(soup, "인사이트") == "로버트 C. 마틴"
+
+    def test_no_author_raises(self):
+        """저자가 없는 상품(예: 음반)은 출판사를 저자로 쓰지 않고 실패한다"""
+        soup = self._soup(
+            """
+            <span class="gd_pubArea">
+                <span class="gd_pub"><a href="#">뮤직리서치</a></span>
+                <em class="divi">|</em>
+                <span class="gd_date">2008년 09월 04일</span>
+            </span>
+            """
+        )
+        with pytest.raises(ScrapingError, match="저자"):
+            _extract_author(soup, "뮤직리서치")
 
 
 class TestScrapeBookInfoSoldout:

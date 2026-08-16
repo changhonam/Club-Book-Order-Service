@@ -27,7 +27,9 @@ def _get_scraper_api_key() -> str | None:
 # CSS 셀렉터 상수 (Yes24 PC 페이지 기준)
 # ---------------------------------------------------------------------------
 SEL_TITLE = "h2.gd_name"
-SEL_AUTHOR = "span.gd_pubArea a"  # 저자 링크
+SEL_PUB_AREA = "span.gd_pubArea"  # 저자/출판사/발행일 영역
+SEL_AUTHOR_AREA = "span.gd_auth"  # 저자 영역 (링크 또는 일반 텍스트)
+SEL_AUTHOR = "span.gd_pubArea a"  # 저자 링크 (gd_auth가 없는 마크업 fallback)
 SEL_PUBLISHER = "span.gd_pub a"  # 출판사 링크
 SEL_SALE_PRICE = ".nor_price"  # 판매가 금액 (가격 영역 내)
 SEL_ORIGINAL_PRICE = "em.yes_b"  # 정가 금액 (fallback)
@@ -183,6 +185,75 @@ def _extract_sale_price(soup: BeautifulSoup) -> int:
         return _parse_price(price_el.get_text(strip=True))
 
     raise ScrapingError("가격 정보를 찾을 수 없습니다")
+
+
+# ---------------------------------------------------------------------------
+# 저자 추출
+# ---------------------------------------------------------------------------
+# 저자명 뒤에 붙는 역할 표기 (예: "한강 저", "김지원 역")
+_RE_AUTHOR_ROLE_SUFFIX = re.compile(r"\s+(저자|저|지음|글|그림|편저|편|엮음|옮김|역)$")
+# 발행일 세그먼트 (예: "2003년 11월 06일")
+_RE_DATE_SEGMENT = re.compile(r"^\d{4}년")
+# gd_pubArea 안에서 저자가 아닌 것이 확실한 영역
+_NON_AUTHOR_CLASSES = ("gd_pub", "gd_date", "gd_orgin")
+# 원제/번역서 등 저자가 아닌 텍스트 세그먼트
+_NON_AUTHOR_PREFIXES = ("원제", "번역서")
+
+
+def _clean_author_text(text: str) -> str:
+    """저자 텍스트에서 공백을 정리하고 역할 표기를 제거한다."""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    # "홍길동 저 / 김번역 역" 형태면 첫 번째(원저자) 부분만 사용
+    cleaned = cleaned.split("/")[0].strip()
+    return _RE_AUTHOR_ROLE_SUFFIX.sub("", cleaned).strip()
+
+
+def _extract_author(soup: BeautifulSoup, publisher: str) -> str:
+    """저자를 추출한다.
+
+    중고도서 페이지는 저자가 링크가 아닌 일반 텍스트로 렌더링되므로,
+    gd_pubArea의 첫 <a>를 그대로 쓰면 출판사 링크를 저자로 잘못 읽는다.
+    따라서 저자 영역(gd_auth)을 우선 사용하고, 없으면 출판사/발행일 영역을
+    제외한 링크 → 파이프 구분 텍스트 순으로 fallback 한다.
+
+    Raises:
+        ScrapingError: 저자 정보를 찾을 수 없는 경우
+    """
+    pub_area = soup.select_one(SEL_PUB_AREA)
+    if pub_area is None:
+        raise ScrapingError("저자 정보를 찾을 수 없습니다")
+
+    # 1순위: 저자 영역. 링크가 있으면 첫 저자 링크, 없으면(중고도서) 텍스트 사용
+    author_area = pub_area.select_one(SEL_AUTHOR_AREA)
+    if author_area is not None:
+        author_link = author_area.find("a")
+        author = _clean_author_text(
+            author_link.get_text() if author_link else author_area.get_text()
+        )
+        if author:
+            return author
+
+    # 2순위: gd_auth가 없는 마크업 — 출판사/발행일/원제 영역 밖의 첫 링크
+    for link in pub_area.select("a"):
+        if any(link.find_parent("span", class_=cls) for cls in _NON_AUTHOR_CLASSES):
+            continue
+        author = _clean_author_text(link.get_text())
+        if author:
+            return author
+
+    # 3순위: "저자 | 출판사 | 발행일" 형태의 텍스트에서 저자 세그먼트 추출
+    for segment in pub_area.get_text(" ", strip=True).split("|"):
+        author = _clean_author_text(segment)
+        if (
+            not author
+            or author == publisher
+            or _RE_DATE_SEGMENT.match(author)
+            or author.startswith(_NON_AUTHOR_PREFIXES)
+        ):
+            continue
+        return author
+
+    raise ScrapingError("저자 정보를 찾을 수 없습니다")
 
 
 # ---------------------------------------------------------------------------
@@ -349,17 +420,14 @@ def scrape_book_info(url: str) -> BookInfo:
         raise ScrapingError("도서 제목을 찾을 수 없습니다")
     title = title_el.get_text(strip=True)
 
-    # 저자 추출
-    author_el = soup.select_one(SEL_AUTHOR)
-    if not author_el:
-        raise ScrapingError("저자 정보를 찾을 수 없습니다")
-    author = author_el.get_text(strip=True)
-
-    # 출판사 추출
+    # 출판사 추출 (저자 판별 시 출판사 텍스트를 제외하는 데 사용)
     publisher_el = soup.select_one(SEL_PUBLISHER)
     if not publisher_el:
         raise ScrapingError("출판사 정보를 찾을 수 없습니다")
     publisher = publisher_el.get_text(strip=True)
+
+    # 저자 추출
+    author = _extract_author(soup, publisher)
 
     # 가격 추출
     price = _extract_sale_price(soup)
