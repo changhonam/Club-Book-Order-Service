@@ -63,6 +63,9 @@ def mock_spreadsheet():
         mock_orders_ws = MagicMock()
         mock_config_ws = MagicMock()
         mock_logs_ws = MagicMock()
+        # fee_paid가 MembershipFees에서 파생되므로 회원을 읽을 때마다 함께 조회된다
+        mock_fee_ws = MagicMock()
+        mock_fee_ws.get_all_records.return_value = []
 
         def get_worksheet(name):
             mapping = {
@@ -70,6 +73,7 @@ def mock_spreadsheet():
                 "Orders": mock_orders_ws,
                 "Config": mock_config_ws,
                 "Logs": mock_logs_ws,
+                "MembershipFees": mock_fee_ws,
             }
             return mapping[name]
 
@@ -81,6 +85,7 @@ def mock_spreadsheet():
             "orders": mock_orders_ws,
             "config": mock_config_ws,
             "logs": mock_logs_ws,
+            "fees": mock_fee_ws,
         }
 
 

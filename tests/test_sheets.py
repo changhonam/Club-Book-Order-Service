@@ -51,6 +51,9 @@ def mock_spreadsheet():
         mock_orders_ws = MagicMock()
         mock_config_ws = MagicMock()
         mock_logs_ws = MagicMock()
+        # fee_paid가 MembershipFees에서 파생되므로 회원을 읽을 때마다 함께 조회된다
+        mock_fee_ws = MagicMock()
+        mock_fee_ws.get_all_records.return_value = []
 
         def get_worksheet(name):
             mapping = {
@@ -58,6 +61,7 @@ def mock_spreadsheet():
                 "Orders": mock_orders_ws,
                 "Config": mock_config_ws,
                 "Logs": mock_logs_ws,
+                "MembershipFees": mock_fee_ws,
             }
             return mapping[name]
 
@@ -69,6 +73,7 @@ def mock_spreadsheet():
             "orders": mock_orders_ws,
             "config": mock_config_ws,
             "logs": mock_logs_ws,
+            "fees": mock_fee_ws,
         }
 
 
@@ -77,10 +82,16 @@ def mock_spreadsheet():
 
 class TestMembers:
     def test_get_all_members(self, mock_spreadsheet):
-        """회원 전체 목록 조회."""
+        """회원 전체 목록 조회. fee_paid는 현재 분기 회비 기록에서 파생."""
+        mock_spreadsheet["config"].get_all_records.return_value = [
+            {"Key": "current_order_month", "Value": "2026-03"},
+        ]
         mock_spreadsheet["members"].get_all_records.return_value = [
             {"Name": "홍길동", "PIN": "1234", "Fee_Paid": "true"},
             {"Name": "김철수", "PIN": "0000", "Fee_Paid": "false"},
+        ]
+        mock_spreadsheet["fees"].get_all_records.return_value = [
+            {"Name": "홍길동", "Quarter": "2026-Q1", "Paid_At": ""},
         ]
         result = get_all_members()
         assert all(isinstance(m, MemberRecord) for m in result)
@@ -120,8 +131,9 @@ class TestMembers:
         ]
         result = add_member("김철수")
         assert result is True
+        # 신규 회원은 현재 분기 회비를 납부한 것으로 간주하므로 미러도 "true"
         mock_spreadsheet["members"].append_row.assert_called_once_with(
-            ["김철수", "0000", "false"], value_input_option="RAW"
+            ["김철수", "0000", "true"], value_input_option="RAW"
         )
 
     def test_add_member_duplicate(self, mock_spreadsheet):
@@ -508,10 +520,12 @@ class TestCacheHelpers:
         get_orders_by_month.clear.assert_called_once()
 
     def test_clear_config_cache(self):
-        """설정 캐시 클리어."""
+        """설정 캐시 클리어. 접수월이 바뀌면 유효 분기도 바뀌므로 회원 캐시도 함께 비운다."""
         get_config.clear = MagicMock()
+        get_all_members.clear = MagicMock()
         clear_config_cache()
         get_config.clear.assert_called_once()
+        get_all_members.clear.assert_called_once()
 
     def test_add_member_clears_cache(self, mock_spreadsheet):
         """회원 추가 후 캐시 클리어 확인."""

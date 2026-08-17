@@ -14,7 +14,8 @@ import gspread
 import streamlit as st
 from google.oauth2.service_account import Credentials
 
-from utils import ConfigRecord, MemberRecord, OrderRecord, PaymentRecord
+from utils import ConfigRecord, FeeRecord, MemberRecord, OrderRecord, PaymentRecord
+from utils.fee import month_to_quarter, quarter_of
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -87,14 +88,21 @@ def _get_worksheet(name: str):
 
 @st.cache_data(ttl=600)
 def get_all_members() -> list[MemberRecord]:
-    """전체 회원 목록 반환. TTL=600초 캐싱."""
+    """전체 회원 목록 반환. TTL=600초 캐싱.
+
+    fee_paid는 Members 시트가 아니라 현재 유효 분기의 MembershipFees 기록에서
+    파생한다. 덕분에 분기가 넘어가면 별도 초기화 작업 없이 전원이 미납이 된다.
+    (Members.Fee_Paid 컬럼은 스프레드시트를 직접 열어보는 관리자를 위한 표시용
+    미러일 뿐이며, 읽기에는 쓰지 않는다.)
+    """
     ws = _get_worksheet("Members")
     records = ws.get_all_records()
+    paid_names = get_fee_paid_names(get_current_fee_quarter())
     return [
         MemberRecord(
             name=str(r.get("Name", "")),
             pin=str(r.get("PIN", "0000")).zfill(4),
-            fee_paid=str(r.get("Fee_Paid", "false")).lower() == "true",
+            fee_paid=str(r.get("Name", "")) in paid_names,
         )
         for r in records
     ]
@@ -115,27 +123,36 @@ def find_member(name: str) -> Optional[MemberRecord]:
 
 @with_retry()
 def add_member(name: str) -> bool:
-    """회원 추가. 이미 존재하면 False 반환. PIN=0000, Fee_Paid=false."""
+    """회원 추가. 이미 존재하면 False 반환. PIN=0000.
+
+    신규 가입자는 가입한 달이 포함된 분기의 회비를 납부한 것으로 간주하므로
+    현재 유효 분기의 회비 기록도 함께 생성한다.
+    """
     if find_member(name) is not None:
         return False
     ws = _get_worksheet("Members")
-    ws.append_row([name, "0000", "false"], value_input_option="RAW")
+    ws.append_row([name, "0000", "true"], value_input_option="RAW")
     clear_member_cache()
+    batch_add_fee_records([name], get_current_fee_quarter())
     return True
 
 
 @with_retry()
 def batch_add_members(names: list[str]) -> list[str]:
-    """여러 회원을 일괄 추가. 이미 존재하는 회원은 건너뜀. 실제 추가된 이름 리스트 반환."""
+    """여러 회원을 일괄 추가. 이미 존재하는 회원은 건너뜀. 실제 추가된 이름 리스트 반환.
+
+    add_member와 동일하게 현재 유효 분기의 회비 기록도 함께 생성한다.
+    """
     if not names:
         return []
     existing = {m.name for m in get_all_members()}
     new_names = [n for n in names if n not in existing]
     if new_names:
         ws = _get_worksheet("Members")
-        rows = [[n, "0000", "false"] for n in new_names]
+        rows = [[n, "0000", "true"] for n in new_names]
         ws.append_rows(rows, value_input_option="RAW")
         clear_member_cache()
+        batch_add_fee_records(new_names, get_current_fee_quarter())
     return new_names
 
 
@@ -163,51 +180,42 @@ def update_member_pin(name: str, new_pin: str) -> bool:
     return True
 
 
-@with_retry()
-def update_member_fee_paid(name: str, fee_paid: bool) -> bool:
-    """회원 회비 납부 상태 변경. 존재하지 않으면 False 반환."""
-    ws = _get_worksheet("Members")
-    cell = ws.find(name, in_column=1)
-    if cell is None:
-        return False
-    ws.update_cell(cell.row, 3, "true" if fee_paid else "false")
-    clear_member_cache()
-    return True
+def _sync_members_fee_paid(quarter: str) -> int:
+    """Members.Fee_Paid 표시용 미러를 해당 분기 회비 기록에 맞춘다. 변경 건수 반환.
 
-
-@with_retry()
-def batch_update_fee_paid(names: list[str]) -> int:
-    """여러 회원의 회비 납부 상태를 일괄 변경. batch_update로 1회 API 호출. 변경 건수 반환."""
-    if not names:
-        return 0
+    이 컬럼은 스프레드시트를 직접 열어보는 관리자를 위한 것일 뿐이며,
+    앱은 get_all_members()에서 MembershipFees를 직접 파생해 읽는다.
+    따라서 이 동기화가 실패해도 앱 동작은 정확하다 (표시값만 낡는다).
+    """
     ws = _get_worksheet("Members")
     records = ws.get_all_records()
-    name_set = set(names)
+    paid_names = get_fee_paid_names(quarter)
     batch_data = []
     for idx, r in enumerate(records):
-        if str(r.get("Name", "")) in name_set:
+        name = str(r.get("Name", ""))
+        current = str(r.get("Fee_Paid", "false")).lower() == "true"
+        expected = name in paid_names
+        if current != expected:
             row = idx + 2  # +2: 헤더 + 0-based
-            batch_data.append({"range": f"C{row}", "values": [["true"]]})
+            batch_data.append(
+                {"range": f"C{row}", "values": [["true" if expected else "false"]]}
+            )
     if batch_data:
         ws.batch_update(batch_data, value_input_option="RAW")
     clear_member_cache()
     return len(batch_data)
 
 
-@with_retry()
-def reset_all_fee_paid() -> int:
-    """전체 회원 회비 납부 상태를 미납으로 초기화. batch_update로 1회 API 호출."""
-    ws = _get_worksheet("Members")
-    records = ws.get_all_records()
-    batch_data = []
-    for idx, r in enumerate(records):
-        if str(r.get("Fee_Paid", "false")).lower() == "true":
-            row = idx + 2  # +2: 헤더 + 0-based
-            batch_data.append({"range": f"C{row}", "values": [["false"]]})
-    if batch_data:
-        ws.batch_update(batch_data, value_input_option="RAW")
-    clear_member_cache()
-    return len(batch_data)
+def _sync_fee_mirror_quietly(quarter: str) -> None:
+    """미러 동기화를 시도하되 실패해도 예외를 전파하지 않는다.
+
+    미러는 표시용이므로, 여기서 터지면 정작 성공한 회비 기록 변경까지
+    실패한 것처럼 보이게 된다.
+    """
+    try:
+        _sync_members_fee_paid(quarter)
+    except Exception:  # noqa: BLE001, S110 - 표시용이라 어떤 실패도 앱을 막지 않는다
+        pass
 
 
 # --- Orders ---
@@ -376,6 +384,10 @@ def update_config(
         ws.update_cell(key_row_map["auto_close_datetime"], 2, auto_close_datetime)
 
     clear_config_cache()
+    if current_order_month is not None:
+        # 접수월이 바뀌면 유효 분기도 바뀔 수 있다. 파생 읽기는 이미 정확하므로
+        # 여기서는 표시용 미러만 새 분기에 맞춰 둔다.
+        _sync_fee_mirror_quietly(get_current_fee_quarter())
     return get_config()
 
 
@@ -423,8 +435,14 @@ def clear_order_cache() -> None:
 
 
 def clear_config_cache() -> None:
-    """Config 캐시 초기화."""
+    """Config 캐시 초기화.
+
+    접수월이 바뀌면 현재 유효 분기도 바뀌므로, 그 분기에서 파생되는
+    회원의 fee_paid 값도 함께 무효화해야 한다. 분기 롤오버 시 전원이
+    자동으로 미납이 되는 동작이 바로 이 한 줄에 달려 있다.
+    """
     get_config.clear()
+    get_all_members.clear()
 
 
 # --- Payments ---
@@ -542,3 +560,167 @@ def clear_payment_cache() -> None:
     """Payments 캐시 초기화."""
     get_payment_status.clear()
     get_all_payments_by_month.clear()
+
+
+# --- MembershipFees (회비) ---
+#
+# 회비는 분기 단위로 납부하며, 행의 존재 자체가 '납부'를 의미한다.
+# 미납은 행이 없는 상태이고, 납부 해제는 해당 행을 삭제하는 것이다.
+# (Is_Paid 컬럼을 두면 '행 없음'과 '행 있고 false'라는 두 가지 미납 표현이 생긴다.)
+#
+# 주의: Payments 시트는 도서 본인부담금용이며 회비와 무관하다.
+
+
+@st.cache_data(ttl=300)
+def _get_all_fee_records_raw() -> list[dict]:
+    """MembershipFees 원본 레코드 반환. TTL=300초 캐싱."""
+    ws = _get_worksheet("MembershipFees")
+    return ws.get_all_records()
+
+
+@st.cache_data(ttl=300)
+def get_fee_records(quarter: Optional[str] = None) -> list[FeeRecord]:
+    """회비 납부 기록 조회. quarter=None이면 전체. TTL=300초 캐싱."""
+    return [
+        FeeRecord(
+            name=str(r.get("Name", "")),
+            quarter=str(r.get("Quarter", "")),
+            paid_at=str(r.get("Paid_At", "")),
+        )
+        for r in _get_all_fee_records_raw()
+        if quarter is None or str(r.get("Quarter", "")) == quarter
+    ]
+
+
+def get_fee_paid_names(quarter: str) -> set[str]:
+    """해당 분기 회비 납부자 이름 집합. 집합이라 중복 행은 자연히 흡수된다."""
+    return {rec.name for rec in get_fee_records(quarter) if rec.name}
+
+
+def get_fee_quarters() -> list[str]:
+    """기록이 존재하는 분기 목록 (최신순).
+
+    "YYYY-Qn"은 n이 한 자리라 사전순 = 시간순이므로 별도 비교자가 필요 없다.
+    """
+    quarters = {rec.quarter for rec in get_fee_records() if rec.quarter}
+    return sorted(quarters, reverse=True)
+
+
+def get_current_fee_quarter() -> str:
+    """현재 유효 분기 반환. 접수월(Config.current_order_month) 기준.
+
+    회비가 도서 신청을 게이트하므로(dashboard의 can_modify) 접수월과 같은 축을 쓴다.
+    설정값이 비었거나 형식이 잘못되면 KST 현재 시각 기준으로 폴백한다.
+    로그인 경로에서 호출되므로 어떤 경우에도 예외를 던지지 않는다.
+    """
+    try:
+        return month_to_quarter(get_config().current_order_month)
+    except ValueError:
+        return quarter_of(datetime.now(KST))
+
+
+@with_retry()
+def batch_add_fee_records(names: list[str], quarter: str) -> list[str]:
+    """해당 분기 회비 납부 일괄 등록. 이미 기록이 있으면 건너뜀.
+
+    Returns:
+        실제 추가된 이름 리스트 (batch_add_members와 같은 반환 규약)
+    """
+    if not names:
+        return []
+    ws = _get_worksheet("MembershipFees")
+    existing = {
+        str(r.get("Name", ""))
+        for r in ws.get_all_records()
+        if str(r.get("Quarter", "")) == quarter
+    }
+    new_names = [n for n in dict.fromkeys(names) if n not in existing]
+    if new_names:
+        paid_at = datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
+        rows = [[n, quarter, paid_at] for n in new_names]
+        ws.append_rows(rows, value_input_option="RAW")
+        clear_fee_cache()
+        _sync_fee_mirror_quietly(get_current_fee_quarter())
+    return new_names
+
+
+@with_retry()
+def batch_remove_fee_records(names: list[str], quarter: str) -> int:
+    """해당 분기 회비 납부 일괄 해제. 삭제된 행 수 반환.
+
+    이름이 일치하는 행을 모두 지우므로 중복 행이 있어도 확실히 미납이 된다.
+    """
+    if not names:
+        return 0
+    ws = _get_worksheet("MembershipFees")
+    name_set = set(names)
+    rows_to_delete = [
+        idx + 2  # +2: 헤더 + 0-based
+        for idx, r in enumerate(ws.get_all_records())
+        if str(r.get("Quarter", "")) == quarter and str(r.get("Name", "")) in name_set
+    ]
+    _delete_rows_in_runs(ws, rows_to_delete)
+    if rows_to_delete:
+        clear_fee_cache()
+        _sync_fee_mirror_quietly(get_current_fee_quarter())
+    return len(rows_to_delete)
+
+
+def set_fee_paid(name: str, quarter: str, paid: bool) -> bool:
+    """단일 회원의 특정 분기 납부 상태 변경. 이미 같은 상태면 False(변경 없음) 반환.
+
+    재시도는 위임 대상 함수가 이미 처리하므로 여기에 데코레이터를 두지 않는다.
+    """
+    if paid:
+        return bool(batch_add_fee_records([name], quarter))
+    return batch_remove_fee_records([name], quarter) > 0
+
+
+@with_retry()
+def delete_fee_records_by_quarter(quarter: str) -> int:
+    """특정 분기의 회비 기록 전체 삭제. 삭제된 행 수 반환."""
+    ws = _get_worksheet("MembershipFees")
+    rows_to_delete = [
+        idx + 2  # +2: 헤더 + 0-based
+        for idx, r in enumerate(ws.get_all_records())
+        if str(r.get("Quarter", "")) == quarter
+    ]
+    _delete_rows_in_runs(ws, rows_to_delete)
+    if rows_to_delete:
+        clear_fee_cache()
+        _sync_fee_mirror_quietly(get_current_fee_quarter())
+    return len(rows_to_delete)
+
+
+def _delete_rows_in_runs(ws, rows: list[int]) -> None:
+    """연속 구간을 묶어 역순으로 삭제.
+
+    같은 분기 행은 함께 append되어 대개 연속이므로 delete_rows 호출이 1~2회로 끝난다.
+    (행마다 호출하면 30명 분기 삭제에 30회 API 호출이 된다.)
+    역순으로 지워야 남은 행 번호가 밀리지 않는다.
+    """
+    if not rows:
+        return
+    ordered = sorted(set(rows))
+    runs: list[tuple[int, int]] = []
+    start = prev = ordered[0]
+    for row in ordered[1:]:
+        if row == prev + 1:
+            prev = row
+            continue
+        runs.append((start, prev))
+        start = prev = row
+    runs.append((start, prev))
+
+    for first, last in reversed(runs):
+        ws.delete_rows(first, last)
+
+
+def clear_fee_cache() -> None:
+    """MembershipFees 캐시 초기화.
+
+    회원의 fee_paid가 이 기록에서 파생되므로 Members 캐시도 함께 비운다.
+    """
+    _get_all_fee_records_raw.clear()
+    get_fee_records.clear()
+    get_all_members.clear()

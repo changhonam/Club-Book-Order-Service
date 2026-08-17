@@ -6,7 +6,7 @@
 
 - **도서 신청**: Yes24 URL 입력만으로 도서 정보 자동 조회 및 신청
 - **자동 정산**: 동호회 지원금(최대 30,000원) 자동 계산, 본인 부담금 확인 및 입금 완료 처리
-- **관리자 기능**: 회원 관리, 회비 관리, 신청 현황 조회, 대리 신청, Excel 내보내기
+- **관리자 기능**: 회원 관리, 회비 관리(분기별 납부 기록), 신청 현황 조회, 대리 신청, Excel 내보내기
 - **자동 마감**: 지정 일시에 자동으로 신청 마감
 
 ## 기술 스택
@@ -100,15 +100,20 @@ password = "관리자 비밀번호"
 python scripts/setup_sheets.py
 ```
 
-이 스크립트는 다음 5개 워크시트를 생성합니다:
+이 스크립트는 다음 6개 워크시트를 생성합니다:
 
 | 워크시트 | 헤더 | 설명 |
 |----------|------|------|
-| Members | `Name`, `PIN`, `Fee_Paid` | 회원 명부 (PIN: 4자리, Fee_Paid: 회비 납부 여부) |
+| Members | `Name`, `PIN`, `Fee_Paid` | 회원 명부 (PIN: 4자리, Fee_Paid: 회비 납부 표시용 미러) |
 | Orders | `Order_ID`, `Order_Month`, `Name`, `Book_URL`, `Title`, `Author`, `Price`, `Created_At`, `Publisher`, `ISBN` | 주문 내역 |
 | Config | `Key`, `Value` | 서비스 설정 (접수월, 마감 여부, 자동마감 일시) |
-| Payments | `Name`, `Order_Month`, `Is_Paid`, `Paid_At` | 본인 부담금 입금 상태 |
+| MembershipFees | `Name`, `Quarter`, `Paid_At` | 분기별 회비 납부 기록 (행 존재 = 납부) |
+| Payments | `Name`, `Order_Month`, `Is_Paid`, `Paid_At` | 본인 부담금 입금 상태 (회비와 무관) |
 | Logs | `Timestamp`, `Event_Type`, `Message` | 이벤트 로그 |
+
+기존 스프레드시트에 대해서는 `Members.Fee_Paid`가 `true`인 회원을 현재 유효 분기의
+`MembershipFees` 기록으로 백필합니다(멱등). `Fee_Paid` 컬럼은 제거하지 않고 표시용
+미러로 남습니다.
 
 ### 5. 앱 실행
 
@@ -131,20 +136,27 @@ scripts/start_server.sh
 │   ├── dashboard.py            # 도서 구매 신청 및 정산 조회
 │   └── admin.py                # 관리자 (회원/주문/회비 관리, 대리 신청, Excel 내보내기)
 ├── utils/
-│   ├── __init__.py             # 데이터 모델 (BookInfo, Settlement, OrderRecord, MemberRecord, PaymentRecord, ConfigRecord)
+│   ├── __init__.py             # 데이터 모델 (BookInfo, Settlement, OrderRecord, MemberRecord, PaymentRecord, FeeRecord, ConfigRecord)
 │   ├── sheets.py               # Google Sheets CRUD (캐싱, 재시도 포함)
 │   ├── scraper.py              # Yes24 도서 정보 스크래핑
 │   ├── settlement.py           # 정산 로직 (지원금 계산, 주문별 배분)
+│   ├── fee.py                  # 회비 분기 계산 ("YYYY-Qn" 파싱/포맷, 순수 함수)
+│   ├── bank_parser.py          # 하나은행 거래내역 엑셀 파싱 및 회원 매칭
 │   ├── navigation.py           # 네비게이션 페이지 목록 생성
 │   └── sidebar.py              # 사이드바 렌더링 및 session_state 초기화
 ├── scripts/
-│   └── setup_sheets.py         # Google Sheets 초기 설정 스크립트
+│   ├── setup_sheets.py         # Google Sheets 초기 설정 및 마이그레이션 스크립트
+│   ├── start_server.sh         # 서버 기동 (nohup + 헬스체크)
+│   └── stop_server.sh          # 서버 중지
 ├── tests/
 │   ├── conftest.py             # 테스트 공통 픽스처
 │   ├── test_scraper.py         # 스크래퍼 테스트
 │   ├── test_settlement.py      # 정산 로직 테스트
 │   ├── test_sheets.py          # Sheets CRUD 테스트
 │   ├── test_members.py         # 회원 관리(PIN, 회비) 테스트
+│   ├── test_fee.py             # 회비 분기 계산 테스트
+│   ├── test_fee_records.py     # MembershipFees CRUD 테스트
+│   ├── test_bank_parser.py     # 거래내역 파싱/매칭 테스트
 │   ├── test_navigation.py      # 네비게이션 로직 테스트
 │   └── test_integration.py     # 통합 테스트
 ├── docs/
@@ -166,6 +178,17 @@ scripts/start_server.sh
 
 - 동호회가 총액의 50%를 지원하되, 월 최대 30,000원까지 지원
 - 여러 건 신청 시 지원금은 각 주문의 가격 비율에 따라 배분
+
+## 회비 관리
+
+- 회비는 **분기(`YYYY-Qn`) 단위**로 `MembershipFees` 시트에 기록하며, **행의 존재 자체가
+  '납부'**를 의미합니다. 미납은 행이 없는 상태이고, 납부 해제는 해당 행을 삭제하는 것입니다.
+- 현재 유효 분기는 접수월(`Config.current_order_month`)에서 파생합니다. 접수월이 다음
+  분기로 넘어가면 **별도 초기화 작업 없이 전 회원이 자동으로 미납**이 되고, 이전 분기
+  기록은 누적 납부 기록으로 남습니다.
+- 신규 회원은 가입한 달이 포함된 분기의 회비를 납부한 것으로 간주하여 기록이 함께 생성됩니다.
+- 관리자 페이지에서 분기별 납부 등록/해제, 누적 기록 조회, 분기별 기록 일괄 삭제가 가능합니다.
+- `Payments` 시트는 도서 본인 부담금 입금용이며 회비와 무관합니다.
 
 ## 배포 (사내 컨테이너)
 
