@@ -1,10 +1,21 @@
 """Google Sheets 초기 설정 스크립트 - 워크시트 및 헤더 자동 생성."""
 
+import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import toml
 import gspread
 from google.oauth2.service_account import Credentials
+
+# 스크립트를 `python scripts/setup_sheets.py`로 실행하면 sys.path[0]가 scripts/라서
+# 저장소 루트를 직접 추가해야 utils를 import할 수 있다.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from utils.fee import month_to_quarter, quarter_of
+
+KST = ZoneInfo("Asia/Seoul")
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -149,6 +160,56 @@ def setup():
         print("Config 시트 생성 완료 (초기값 포함)")
     else:
         print("Config 시트 이미 존재")
+
+    # MembershipFees 시트 (회비 납부 기록)
+    # 행의 존재 자체가 '납부'를 의미한다. 미납은 행이 없는 상태.
+    # 주의: Payments 시트는 도서 본인부담금용이며 회비와 무관하다.
+    target_fee_headers = ["Name", "Quarter", "Paid_At"]
+    if "MembershipFees" not in existing:
+        fee_ws = ss.add_worksheet(title="MembershipFees", rows=1000, cols=3)
+        fee_ws.update(range_name="A1", values=[target_fee_headers])
+        print("MembershipFees 시트 생성 완료")
+    else:
+        fee_ws = ss.worksheet("MembershipFees")
+        headers = fee_ws.row_values(1)
+        if headers[:3] != target_fee_headers:
+            if fee_ws.col_count < 3:
+                fee_ws.resize(rows=fee_ws.row_count, cols=3)
+            fee_ws.update(range_name="A1", values=[target_fee_headers])
+            print("MembershipFees 시트 마이그레이션 완료 (헤더 정정)")
+        else:
+            print("MembershipFees 시트 이미 최신 스키마")
+
+    # 기존 Members.Fee_Paid -> MembershipFees 백필 (멱등)
+    # Fee_Paid 컬럼은 제거하지 않고 표시용 미러로 남긴다. 진실 소스는 MembershipFees.
+    members_ws = ss.worksheet("Members")
+    paid_names = [
+        str(r.get("Name", ""))
+        for r in members_ws.get_all_records()
+        if str(r.get("Fee_Paid", "false")).lower() == "true"
+    ]
+    if paid_names:
+        config_map = {
+            str(r.get("Key", "")): str(r.get("Value", ""))
+            for r in ss.worksheet("Config").get_all_records()
+        }
+        try:
+            quarter = month_to_quarter(config_map.get("current_order_month", ""))
+        except ValueError:
+            quarter = quarter_of(datetime.now(KST))
+        existing_pairs = {
+            (str(r.get("Name", "")), str(r.get("Quarter", "")))
+            for r in fee_ws.get_all_records()
+        }
+        rows = [[n, quarter, ""] for n in paid_names if (n, quarter) not in existing_pairs]
+        if rows:
+            fee_ws.append_rows(rows, value_input_option="RAW")
+        print(
+            f"회비 기록 백필: {quarter} {len(rows)}건 추가 "
+            f"(이미 존재 {len(paid_names) - len(rows)}건 건너뜀)"
+        )
+    else:
+        print("회비 기록 백필 대상 없음")
 
     # Payments 시트
     target_payments_headers = [

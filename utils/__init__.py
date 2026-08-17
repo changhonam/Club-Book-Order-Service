@@ -47,7 +47,7 @@ class MemberRecord:
 
     name: str
     pin: str  # 4자리 숫자 문자열
-    fee_paid: bool  # 회비 납부 여부
+    fee_paid: bool  # 현재 유효 분기 회비 납부 여부 (MembershipFees에서 파생)
 
 
 @dataclass
@@ -59,6 +59,19 @@ class PaymentRecord:
     is_paid: bool  # 입금 완료 여부 (회원 자기 신고)
     paid_at: str = ""  # "YYYY-MM-DD HH:MM:SS"
     verified_result: str = ""  # 입금 검증 결과 문자열 (빈 문자열=미검증)
+
+
+@dataclass
+class FeeRecord:
+    """회비 납부 기록 (회원+분기 단위)
+
+    행의 존재 자체가 '납부'를 의미한다. 미납은 행이 없는 상태이며,
+    납부 해제는 해당 행을 삭제하는 것이다.
+    """
+
+    name: str  # 회원 이름
+    quarter: str  # "YYYY-Qn"
+    paid_at: str = ""  # 관리자가 등록한 일시 "YYYY-MM-DD HH:MM:SS" (마이그레이션분은 빈 문자열)
 
 
 @dataclass

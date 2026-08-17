@@ -7,14 +7,14 @@
 
 ## 2.2. 데이터베이스 스키마 (Google Sheets 구조)
 
-스프레드시트 파일 내에 5개의 시트(Sheet)를 운영한다.
+스프레드시트 파일 내에 6개의 시트(Sheet)를 운영한다.
 
 ### [Sheet 1: Members]
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | Name | String | 회원 이름 (PK 역할, 고유하게 등록됨) |
 | PIN | String | 4자리 숫자 PIN (기본값: "0000") |
-| Fee_Paid | String | 회비 납부 여부 ("true"/"false", 기본값: "false") |
+| Fee_Paid | String | 회비 납부 여부 표시용 미러 ("true"/"false"). **진실 소스가 아니다** — 앱은 MembershipFees에서 파생해 읽으며, 이 컬럼은 스프레드시트를 직접 열어보는 관리자를 위한 표시값이다 |
 
 ### [Sheet 2: Orders]
 | 컬럼 | 타입 | 설명 |
@@ -37,7 +37,22 @@
 | is_closed | "false" | 신청 마감 여부 ("true"/"false") |
 | auto_close_datetime | "" | 자동 마감 예약 일시 (YYYY-MM-DD HH:MM 또는 빈 값) |
 
-### [Sheet 4: Payments]
+### [Sheet 4: MembershipFees]
+회비 납부 기록(회원+분기 단위). **행의 존재 자체가 '납부'를 의미**한다. 미납은 행이 없는 상태이고, 납부 해제는 해당 행을 삭제하는 것이다. (Is_Paid 컬럼을 두면 '행 없음'과 '행 있고 false'라는 두 가지 미납 표현이 생긴다.)
+
+| 컬럼 | 타입 | 설명 |
+|------|------|------|
+| Name | String | 회원 이름 |
+| Quarter | String | 분기 ("YYYY-Qn", n이 한 자리라 사전순 = 시간순) |
+| Paid_At | String | 관리자 등록 일시 (YYYY-MM-DD HH:MM:SS, 마이그레이션분은 빈 값) |
+
+**현재 유효 분기**: `Config.current_order_month`를 분기로 변환한 값(`utils/fee.month_to_quarter`). 접수월이 비었거나 형식이 잘못되면 KST 현재 시각 기준으로 폴백한다. 회비가 도서 신청을 게이트하므로 접수월과 같은 축을 쓰며, 접수월이 다음 분기로 넘어가면 별도 초기화 없이 전 회원이 미납이 된다.
+
+**마이그레이션**: `scripts/setup_sheets.py`가 기존 `Members.Fee_Paid="true"` 회원을 현재 유효 분기 기록으로 백필한다(멱등). `Fee_Paid` 컬럼은 제거하지 않고 표시용 미러로 유지한다.
+
+### [Sheet 5: Payments]
+도서 본인 부담금 입금 상태이며 회비(MembershipFees)와 무관하다.
+
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | Name | String | 회원 이름 |
@@ -46,14 +61,14 @@
 | Paid_At | String | 입금 완료 처리 일시 (YYYY-MM-DD HH:MM:SS, 미입금 시 빈 값) |
 | Verified_Result | String | 입금 검증 결과 문자열 (빈 문자열=미검증, 예: "✅ 정확", "❌ 미입금") |
 
-### [Sheet 5: Logs]
+### [Sheet 6: Logs]
 | 컬럼 | 타입 | 설명 |
 |------|------|------|
 | Timestamp | String | YYYY-MM-DD HH:MM:SS |
 | Event_Type | String | 이벤트 유형 |
 | Message | String | 상세 메시지 |
 
-**Event_Type**: LOGIN, LOGIN_FAIL, ORDER_CREATE, ORDER_DELETE, ADMIN_ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD, MEMBER_DELETE, PIN_RESET, FEE_PAID, FEE_PAID_BATCH, FEE_RESET_ALL, PAYMENT_DONE, PAYMENT_VERIFY
+**Event_Type**: LOGIN, LOGIN_FAIL, ORDER_CREATE, ORDER_DELETE, ADMIN_ORDER_DELETE, ADMIN_BULK_DELETE, ADMIN_CLOSE_MONTH, ADMIN_SET_MONTH, MEMBER_ADD_BATCH, MEMBER_DELETE, PIN_RESET, FEE_PAID_BATCH, FEE_UNPAID_BATCH, FEE_DELETE_QUARTER, PAYMENT_DONE, PAYMENT_CANCEL, PAYMENT_VERIFY
 
 **보존 기간**: 무기한. 관리자 페이지에서 최근 50건 조회.
 
@@ -66,20 +81,23 @@
 - Members: `@st.cache_data(ttl=600)`
 - Orders: `@st.cache_data(ttl=300)`
 - Payments: `@st.cache_data(ttl=300)`
+- MembershipFees: `@st.cache_data(ttl=300)` (원본 조회 `_get_all_fee_records_raw`를 별도 캐싱)
 - Config: `@st.cache_data(ttl=60)`
 - 변경 시 해당 함수 캐시만 선택적 초기화 (`get_orders_by_month.clear()` 등)
+- 단, Members의 `fee_paid`는 MembershipFees와 Config(접수월)에서 파생하므로 `clear_fee_cache()`·`clear_config_cache()`가 Members 캐시도 함께 비운다
 - Orders 원본 조회(`_get_all_orders_raw`)를 별도 캐싱하여 월별/월 목록 조회 시 API 호출 공유
 
 **동시성 처리**:
 - 추가: `append_row()` 그대로 사용
 - 삭제: Order_ID로 존재 확인 후 삭제
 - 일괄 변경: `worksheet.batch_update()`로 다건 셀 업데이트를 1회 API 호출로 처리
+- 다건 행 삭제: 연속 구간(run)으로 묶어 역순 `delete_rows()` 호출 (분기 단위 회비 기록은 대개 연속으로 append되어 1~2회로 끝남)
 - API 에러 시 최대 3회 재시도 (지수 백오프 + jitter), 400/403 에러는 즉시 실패
 
 ## 2.4. Streamlit 상태 관리
 - `st.session_state.logged_in`, `st.session_state.user_name`
 - `st.session_state.is_admin`
-- `st.session_state.fee_paid` (회비 납부 여부)
+- `st.session_state.fee_paid` (현재 유효 분기 회비 납부 여부)
 - `st.session_state.scraped_data` (스크래핑 결과 보존)
 
 ## 2.5. 핵심 기술 구현

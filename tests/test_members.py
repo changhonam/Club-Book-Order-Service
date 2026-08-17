@@ -1,13 +1,15 @@
 """회원 관리(PIN, 회비 납부) 테스트
 
 Requirements tested:
-1. MemberRecord has name, pin (default "0000"), fee_paid (default false)
+1. MemberRecord has name, pin (default "0000"), fee_paid
 2. Login requires name + PIN match
 3. PIN validation: exactly 4 digits
 4. Admin can reset PIN to "0000"
-5. Admin can toggle fee_paid
-6. Admin can reset ALL fee_paid to false
+5. fee_paid is derived from the current quarter's MembershipFees records
+6. New members are auto-registered as paid for the current quarter
 7. Members with fee_paid=false cannot submit orders (can_modify=false)
+
+회비 기록 자체의 CRUD는 tests/test_fee_records.py에서 다룬다.
 """
 
 from unittest.mock import MagicMock, patch
@@ -20,10 +22,11 @@ from utils.sheets import (
     find_member,
     get_all_members,
     get_member_names,
-    reset_all_fee_paid,
-    update_member_fee_paid,
     update_member_pin,
 )
+
+# 픽스처 기본 접수월 2026-03 → 유효 분기 2026-Q1
+CURRENT_QUARTER = "2026-Q1"
 
 
 # --- Fixtures ---
@@ -31,28 +34,61 @@ from utils.sheets import (
 
 @pytest.fixture
 def mock_spreadsheet():
-    """gspread 스프레드시트 mock."""
+    """gspread 스프레드시트 mock.
+
+    fee_paid가 MembershipFees에서 파생되므로 Members 외에 Config·MembershipFees도
+    매핑해야 한다. 기본값은 홍길동·이영희가 현재 분기 회비를 납부한 상태다.
+    """
     with patch("utils.sheets._get_spreadsheet") as mock_get_ss:
         mock_ss = MagicMock()
         mock_get_ss.return_value = mock_ss
 
         mock_members_ws = MagicMock()
+        mock_config_ws = MagicMock()
+        mock_fee_ws = MagicMock()
+
+        mock_config_ws.get_all_records.return_value = [
+            {"Key": "current_order_month", "Value": "2026-03"},
+            {"Key": "is_closed", "Value": "false"},
+            {"Key": "auto_close_datetime", "Value": ""},
+        ]
+        mock_fee_ws.get_all_records.return_value = _fee_records_data()
 
         def get_worksheet(name):
-            mapping = {"Members": mock_members_ws}
+            mapping = {
+                "Members": mock_members_ws,
+                "Config": mock_config_ws,
+                "MembershipFees": mock_fee_ws,
+            }
             return mapping[name]
 
         mock_ss.worksheet.side_effect = get_worksheet
 
-        yield {"members": mock_members_ws}
+        yield {
+            "members": mock_members_ws,
+            "config": mock_config_ws,
+            "fees": mock_fee_ws,
+        }
 
 
 def _member_records_data():
-    """Members 시트의 get_all_records 반환값 샘플."""
+    """Members 시트의 get_all_records 반환값 샘플.
+
+    Fee_Paid는 표시용 미러라 읽기에 쓰이지 않는다. 실제 납부 여부는
+    _fee_records_data()가 결정한다.
+    """
     return [
         {"Name": "홍길동", "PIN": "1234", "Fee_Paid": "true"},
         {"Name": "김철수", "PIN": "0000", "Fee_Paid": "false"},
         {"Name": "이영희", "PIN": "5678", "Fee_Paid": "true"},
+    ]
+
+
+def _fee_records_data():
+    """MembershipFees 시트의 get_all_records 반환값 샘플 (현재 분기 기준)."""
+    return [
+        {"Name": "홍길동", "Quarter": CURRENT_QUARTER, "Paid_At": "2026-01-05 10:00:00"},
+        {"Name": "이영희", "Quarter": CURRENT_QUARTER, "Paid_At": "2026-01-06 11:00:00"},
     ]
 
 
@@ -116,25 +152,44 @@ class TestGetAllMembers:
         result = get_all_members()
         assert result[0].pin == "0000"
 
-    def test_fee_paid_default_when_missing(self, mock_spreadsheet):
-        """Fee_Paid 필드가 없으면 False."""
+    def test_fee_paid_false_when_no_record(self, mock_spreadsheet):
+        """회비 기록이 없으면 미납."""
         mock_spreadsheet["members"].get_all_records.return_value = [
             {"Name": "테스트", "PIN": "1111"},
         ]
+        mock_spreadsheet["fees"].get_all_records.return_value = []
         result = get_all_members()
         assert result[0].fee_paid is False
 
-    def test_fee_paid_case_insensitive(self, mock_spreadsheet):
-        """Fee_Paid "TRUE", "True" 등 대소문자 무관하게 True 파싱."""
+    def test_fee_paid_derived_from_records_not_mirror(self, mock_spreadsheet):
+        """Members.Fee_Paid 미러가 어긋나 있어도 MembershipFees 기록이 이긴다.
+
+        미러는 스프레드시트 표시용일 뿐 진실 소스가 아니다.
+        """
         mock_spreadsheet["members"].get_all_records.return_value = [
-            {"Name": "A", "PIN": "0000", "Fee_Paid": "TRUE"},
-            {"Name": "B", "PIN": "0000", "Fee_Paid": "True"},
-            {"Name": "C", "PIN": "0000", "Fee_Paid": "False"},
+            {"Name": "A", "PIN": "0000", "Fee_Paid": "true"},  # 미러는 납부라고 주장
+            {"Name": "B", "PIN": "0000", "Fee_Paid": "false"},  # 미러는 미납이라고 주장
+        ]
+        mock_spreadsheet["fees"].get_all_records.return_value = [
+            {"Name": "B", "Quarter": CURRENT_QUARTER, "Paid_At": ""},
         ]
         result = get_all_members()
-        assert result[0].fee_paid is True
+        assert result[0].fee_paid is False  # 기록이 없으므로 미납
+        assert result[1].fee_paid is True  # 기록이 있으므로 납부
+
+    def test_fee_paid_ignores_other_quarters(self, mock_spreadsheet):
+        """지난 분기 기록만 있는 회원은 미납 — 분기 롤오버 요구사항의 핵심."""
+        mock_spreadsheet["members"].get_all_records.return_value = [
+            {"Name": "지난분기", "PIN": "0000"},
+            {"Name": "이번분기", "PIN": "0000"},
+        ]
+        mock_spreadsheet["fees"].get_all_records.return_value = [
+            {"Name": "지난분기", "Quarter": "2025-Q4", "Paid_At": ""},
+            {"Name": "이번분기", "Quarter": CURRENT_QUARTER, "Paid_At": ""},
+        ]
+        result = get_all_members()
+        assert result[0].fee_paid is False
         assert result[1].fee_paid is True
-        assert result[2].fee_paid is False
 
     def test_empty_sheet(self, mock_spreadsheet):
         """빈 시트 -> 빈 리스트."""
@@ -202,14 +257,14 @@ class TestFindMember:
 
 class TestAddMember:
     def test_success(self, mock_spreadsheet):
-        """새 회원 추가 -> True, append_row([name, "0000", "false"])."""
+        """새 회원 추가 -> True, append_row([name, "0000", "true"])."""
         mock_spreadsheet[
             "members"
         ].get_all_records.return_value = _member_records_data()
         result = add_member("박지성")
         assert result is True
         mock_spreadsheet["members"].append_row.assert_called_once_with(
-            ["박지성", "0000", "false"], value_input_option="RAW"
+            ["박지성", "0000", "true"], value_input_option="RAW"
         )
 
     def test_duplicate(self, mock_spreadsheet):
@@ -221,14 +276,32 @@ class TestAddMember:
         assert result is False
         mock_spreadsheet["members"].append_row.assert_not_called()
 
-    def test_default_pin_and_fee_paid(self, mock_spreadsheet):
-        """추가 시 PIN=0000, Fee_Paid=false 기본값."""
+    def test_default_pin(self, mock_spreadsheet):
+        """추가 시 PIN=0000 기본값."""
         mock_spreadsheet["members"].get_all_records.return_value = []
         add_member("신규회원")
         call_args = mock_spreadsheet["members"].append_row.call_args[0][0]
         assert call_args[0] == "신규회원"
         assert call_args[1] == "0000"
-        assert call_args[2] == "false"
+
+    def test_creates_current_quarter_fee_record(self, mock_spreadsheet):
+        """신규 회원은 현재 분기 회비를 납부한 것으로 간주해 기록도 함께 생성."""
+        mock_spreadsheet["members"].get_all_records.return_value = []
+        mock_spreadsheet["fees"].get_all_records.return_value = []
+        add_member("신규회원")
+        mock_spreadsheet["fees"].append_rows.assert_called_once()
+        rows = mock_spreadsheet["fees"].append_rows.call_args[0][0]
+        assert len(rows) == 1
+        assert rows[0][0] == "신규회원"
+        assert rows[0][1] == CURRENT_QUARTER
+
+    def test_duplicate_creates_no_fee_record(self, mock_spreadsheet):
+        """이미 존재하는 회원이면 회비 기록도 만들지 않는다."""
+        mock_spreadsheet[
+            "members"
+        ].get_all_records.return_value = _member_records_data()
+        add_member("홍길동")
+        mock_spreadsheet["fees"].append_rows.assert_not_called()
 
 
 # --- update_member_pin 테스트 ---
@@ -271,97 +344,6 @@ class TestUpdateMemberPin:
         mock_spreadsheet["members"].find.return_value = mock_cell
         get_all_members.clear = MagicMock()
         update_member_pin("홍길동", "5555")
-        get_all_members.clear.assert_called()
-
-
-# --- update_member_fee_paid 테스트 ---
-
-
-class TestUpdateMemberFeePaid:
-    def test_set_true(self, mock_spreadsheet):
-        """회비 납부 -> update_cell(row, 3, "true")."""
-        mock_cell = MagicMock()
-        mock_cell.row = 2
-        mock_spreadsheet["members"].find.return_value = mock_cell
-        result = update_member_fee_paid("홍길동", True)
-        assert result is True
-        mock_spreadsheet["members"].update_cell.assert_called_once_with(2, 3, "true")
-
-    def test_set_false(self, mock_spreadsheet):
-        """회비 미납 -> update_cell(row, 3, "false")."""
-        mock_cell = MagicMock()
-        mock_cell.row = 4
-        mock_spreadsheet["members"].find.return_value = mock_cell
-        result = update_member_fee_paid("이영희", False)
-        assert result is True
-        mock_spreadsheet["members"].update_cell.assert_called_once_with(4, 3, "false")
-
-    def test_not_found(self, mock_spreadsheet):
-        """존재하지 않는 회원 -> False."""
-        mock_spreadsheet["members"].find.return_value = None
-        result = update_member_fee_paid("없는사람", True)
-        assert result is False
-        mock_spreadsheet["members"].update_cell.assert_not_called()
-
-    def test_clears_cache(self, mock_spreadsheet):
-        """상태 변경 후 캐시 초기화."""
-        mock_cell = MagicMock()
-        mock_cell.row = 2
-        mock_spreadsheet["members"].find.return_value = mock_cell
-        get_all_members.clear = MagicMock()
-        update_member_fee_paid("홍길동", True)
-        get_all_members.clear.assert_called()
-
-
-# --- reset_all_fee_paid 테스트 ---
-
-
-class TestResetAllFeePaid:
-    def test_resets_true_to_false(self, mock_spreadsheet):
-        """Fee_Paid가 "true"인 회원만 "false"로 변경, 변경 건수 반환."""
-        mock_spreadsheet[
-            "members"
-        ].get_all_records.return_value = _member_records_data()
-        result = reset_all_fee_paid()
-        # 홍길동(true), 이영희(true) -> 2건 변경
-        assert result == 2
-        mock_spreadsheet["members"].batch_update.assert_called_once()
-        batch_data = mock_spreadsheet["members"].batch_update.call_args[0][0]
-        assert len(batch_data) == 2
-        assert batch_data[0] == {"range": "C2", "values": [["false"]]}
-        assert batch_data[1] == {"range": "C4", "values": [["false"]]}
-
-    def test_no_changes_needed(self, mock_spreadsheet):
-        """모두 이미 false -> 0건 반환."""
-        mock_spreadsheet["members"].get_all_records.return_value = [
-            {"Name": "A", "PIN": "0000", "Fee_Paid": "false"},
-            {"Name": "B", "PIN": "1111", "Fee_Paid": "false"},
-        ]
-        result = reset_all_fee_paid()
-        assert result == 0
-        mock_spreadsheet["members"].batch_update.assert_not_called()
-
-    def test_all_true(self, mock_spreadsheet):
-        """모두 true -> 전체 변경."""
-        mock_spreadsheet["members"].get_all_records.return_value = [
-            {"Name": "A", "PIN": "0000", "Fee_Paid": "true"},
-            {"Name": "B", "PIN": "1111", "Fee_Paid": "true"},
-            {"Name": "C", "PIN": "2222", "Fee_Paid": "true"},
-        ]
-        result = reset_all_fee_paid()
-        assert result == 3
-
-    def test_empty_sheet(self, mock_spreadsheet):
-        """빈 시트 -> 0."""
-        mock_spreadsheet["members"].get_all_records.return_value = []
-        result = reset_all_fee_paid()
-        assert result == 0
-
-    def test_clears_cache(self, mock_spreadsheet):
-        """초기화 후 캐시 클리어."""
-        mock_spreadsheet["members"].get_all_records.return_value = []
-        get_all_members.clear = MagicMock()
-        reset_all_fee_paid()
         get_all_members.clear.assert_called()
 
 

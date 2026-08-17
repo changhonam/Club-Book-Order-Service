@@ -10,31 +10,36 @@ KST = ZoneInfo("Asia/Seoul")
 import pandas as pd
 import streamlit as st
 
+from utils.fee import quarter_label
 from utils.scraper import ScrapingError, extract_goods_id, scrape_book_info
 from utils.settlement import calculate_monthly_payment
 from utils.bank_parser import match_deposits_to_members, parse_hana_bank_excel
 from utils.sheets import (
     add_order,
     append_log,
+    batch_add_fee_records,
     batch_add_members,
+    batch_remove_fee_records,
     batch_set_verified_results,
-    batch_update_fee_paid,
     clear_config_cache,
     clear_member_cache,
     clear_order_cache,
     clear_payment_cache,
+    delete_fee_records_by_quarter,
     delete_order,
     delete_orders_by_month,
-    find_member,
     get_all_members,
     get_all_payments_by_month,
     get_config,
+    get_current_fee_quarter,
     get_existing_order_months,
+    get_fee_paid_names,
+    get_fee_quarters,
+    get_fee_records,
     get_member_names,
     get_orders_by_month,
     get_recent_logs,
     remove_member,
-    reset_all_fee_paid,
     update_config,
     update_member_pin,
 )
@@ -429,8 +434,21 @@ with tab4:
 
     @st.fragment
     def fee_management_fragment():
-        """회비 관리 프래그먼트 — 납부 처리 시 이 영역만 리런됩니다."""
-        st.subheader("회비 관리")
+        """회비 관리 프래그먼트 — 납부 처리 시 이 영역만 리런됩니다.
+
+        분기는 프래그먼트 실행 시작 시점에 한 번만 계산하고, 버튼 핸들러 안에서
+        다시 읽지 않는다. 그래야 화면에 표시된 분기와 실제로 기록되는 분기가
+        어긋나지 않는다. (버튼 라벨·확인 문구에도 분기를 노출한다.)
+        """
+        quarter = get_current_fee_quarter()
+        paid_names = get_fee_paid_names(quarter)
+
+        st.subheader(f"회비 관리 — {quarter_label(quarter)}")
+        st.caption(
+            "유효 분기는 접수월 기준입니다. 접수월이 다음 분기로 넘어가면 "
+            "전 회원이 자동으로 미납 상태가 되고, 이전 분기 기록은 아래 "
+            "'누적 납부 기록'에 그대로 남습니다."
+        )
 
         # --- 납부 대기 리스트 초기화 ---
         if "fee_pending_names" not in st.session_state:
@@ -450,13 +468,11 @@ with tab4:
                     st.error(f"'{name}'은(는) 등록되지 않은 회원입니다.")
                 elif name in st.session_state.fee_pending_names:
                     st.warning(f"'{name}'은(는) 이미 리스트에 있습니다.")
+                elif name in paid_names:
+                    st.info(f"'{name}'은(는) {quarter} 회비를 이미 납부했습니다.")
                 else:
-                    member = find_member(name)
-                    if member and member.fee_paid:
-                        st.info(f"'{name}'은(는) 이미 납부 처리된 회원입니다.")
-                    else:
-                        st.session_state.fee_pending_names.append(name)
-                        st.success(f"'{name}' 추가됨")
+                    st.session_state.fee_pending_names.append(name)
+                    st.success(f"'{name}' 추가됨")
 
         # --- 납부 대기 리스트 표시 ---
         pending = st.session_state.fee_pending_names
@@ -476,20 +492,23 @@ with tab4:
                                 st.session_state.fee_pending_names.pop(idx)
                                 st.rerun(scope="fragment")
 
-            if st.button("일괄 납부 처리", key="btn_batch_fee", type="primary"):
+            if st.button(
+                f"{quarter} 일괄 납부 처리", key="btn_batch_fee", type="primary"
+            ):
                 names_to_update = list(st.session_state.fee_pending_names)
-                count = batch_update_fee_paid(names_to_update)
+                added = batch_add_fee_records(names_to_update, quarter)
                 append_log(
                     "FEE_PAID_BATCH",
-                    f"일괄 납부 처리: {', '.join(names_to_update)} ({count}명)",
+                    f"{quarter} 회비 납부 등록: {', '.join(added)} ({len(added)}명)",
                 )
-                st.success(f"{count}명의 회비가 납부 처리되었습니다.")
+                st.success(f"{len(added)}명의 {quarter} 회비가 납부 처리되었습니다.")
                 st.session_state.fee_pending_names = []
                 clear_member_cache()
+                st.rerun()
 
         st.divider()
 
-        # --- 납부 현황 ---
+        # --- 납부 현황 + 납부 해제 ---
         st.markdown("#### 납부 현황")
         fee_members = get_all_members()
         if fee_members:
@@ -504,32 +523,174 @@ with tab4:
             with col3:
                 st.metric("미납", f"{unpaid_count}명")
 
+            st.caption("행을 선택하면 아래에서 납부를 해제할 수 있습니다.")
+            # 표에 넣는 행 순서와 이름 리스트 순서를 반드시 일치시킬 것
+            fee_names_in_order = [m.name for m in fee_members]
             df_fee = pd.DataFrame(
                 {
-                    "이름": [m.name for m in fee_members],
+                    "이름": fee_names_in_order,
                     "납부 상태": [
                         "납부" if m.fee_paid else "미납" for m in fee_members
                     ],
                 }
             )
-            st.dataframe(df_fee, width="stretch")
+            fee_event = st.dataframe(
+                df_fee,
+                width="stretch",
+                on_select="rerun",
+                selection_mode="multi-row",
+                key="fee_status_table",
+            )
+
+            selected_names = [
+                fee_names_in_order[i] for i in fee_event.selection.rows
+            ]
+            unset_targets = [n for n in selected_names if n in paid_names]
+            already_unpaid = [n for n in selected_names if n not in paid_names]
+
+            if already_unpaid:
+                st.warning(
+                    f"이미 미납 상태라 해제할 것이 없습니다: {', '.join(already_unpaid)}"
+                )
+
+            if unset_targets:
+                unset_confirm_key = "fee_unset_confirm"
+                if st.session_state.get(unset_confirm_key):
+                    st.warning(
+                        f"{quarter} 회비 납부를 해제합니다: {', '.join(unset_targets)}"
+                    )
+                    uc1, uc2 = st.columns(2)
+                    with uc1:
+                        if st.button(
+                            "해제 확인", key="fee_unset_yes", type="primary"
+                        ):
+                            count = batch_remove_fee_records(unset_targets, quarter)
+                            append_log(
+                                "FEE_UNPAID_BATCH",
+                                f"{quarter} 회비 납부 해제: "
+                                f"{', '.join(unset_targets)} ({count}건)",
+                            )
+                            st.success(f"{count}건의 납부 기록을 해제했습니다.")
+                            st.session_state.pop(unset_confirm_key, None)
+                            clear_member_cache()
+                            st.rerun()
+                    with uc2:
+                        if st.button("취소", key="fee_unset_no"):
+                            st.session_state.pop(unset_confirm_key, None)
+                            st.rerun(scope="fragment")
+                else:
+                    if st.button(
+                        f"선택한 {len(unset_targets)}명 납부 해제",
+                        key="fee_unset_start",
+                    ):
+                        st.session_state[unset_confirm_key] = True
+                        st.rerun(scope="fragment")
         else:
             st.info("등록된 회원이 없습니다.")
 
         st.divider()
 
-        # --- 전체 회비 초기화 ---
-        st.markdown("#### 전체 회비 초기화")
-        st.warning(
-            "모든 회원의 회비 납부 상태를 미납으로 초기화합니다. 이 작업은 되돌릴 수 없습니다."
+        # --- 누적 납부 기록 ---
+        st.markdown("#### 누적 납부 기록")
+        all_fee_records = get_fee_records()
+        if not all_fee_records:
+            st.info("아직 회비 납부 기록이 없습니다.")
+            return
+
+        quarters = get_fee_quarters()
+        # 현재 유효 분기를 항상 맨 앞에 둔다 (탭1의 월 목록과 같은 관용구)
+        if quarter not in quarters:
+            quarters.insert(0, quarter)
+        elif quarters[0] != quarter:
+            quarters.remove(quarter)
+            quarters.insert(0, quarter)
+
+        counts: dict[str, int] = {}
+        for rec in all_fee_records:
+            counts[rec.quarter] = counts.get(rec.quarter, 0) + 1
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {"분기": q, "납부 인원": f"{counts.get(q, 0)}명"}
+                    for q in quarters
+                ]
+            ),
+            width="stretch",
         )
-        if st.button("전체 회비 초기화", key="btn_reset_all_fee"):
-            count = reset_all_fee_paid()
-            append_log("FEE_RESET_ALL", f"전체 회비 초기화: {count}건")
-            st.success(f"전체 회원 {count}명의 회비 상태가 미납으로 초기화되었습니다.")
-            st.session_state.fee_pending_names = []
-            clear_member_cache()
-            st.rerun()
+
+        history_quarter = st.selectbox(
+            "분기 상세",
+            options=quarters,
+            index=0,
+            key="fee_history_quarter",
+        )
+        member_name_set = {m.name for m in fee_members}
+        history_rows = [
+            {
+                "이름": rec.name
+                if rec.name in member_name_set
+                else f"{rec.name} (비회원)",
+                "등록 일시": rec.paid_at or "—",
+            }
+            for rec in all_fee_records
+            if rec.quarter == history_quarter
+        ]
+        if history_rows:
+            st.dataframe(pd.DataFrame(history_rows), width="stretch")
+        else:
+            st.info(f"{history_quarter}에 납부 기록이 없습니다.")
+
+        st.divider()
+
+        # --- 분기별 일괄 삭제 ---
+        st.markdown("#### 분기별 기록 일괄 삭제")
+        delete_quarter = st.selectbox(
+            "삭제할 분기",
+            options=quarters,
+            index=0,
+            key="fee_delete_quarter",
+        )
+        delete_count = counts.get(delete_quarter, 0)
+
+        if delete_quarter == quarter:
+            st.error(
+                "현재 유효 분기입니다. 삭제하면 전 회원이 즉시 미납 상태가 되어 "
+                "도서 신청이 차단됩니다."
+            )
+        st.warning(
+            f"{delete_quarter}의 납부 기록 {delete_count}건을 삭제합니다. "
+            "이 작업은 되돌릴 수 없습니다."
+        )
+
+        if delete_count == 0:
+            st.info("삭제할 기록이 없습니다.")
+        else:
+            del_confirm_key = "fee_delete_quarter_confirm"
+            if st.session_state.get(del_confirm_key):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    if st.button("삭제 확인", key="fee_delq_yes", type="primary"):
+                        count = delete_fee_records_by_quarter(delete_quarter)
+                        append_log(
+                            "FEE_DELETE_QUARTER",
+                            f"{delete_quarter} 회비 기록 일괄 삭제: {count}건",
+                        )
+                        st.success(f"{delete_quarter} 기록 {count}건을 삭제했습니다.")
+                        st.session_state.pop(del_confirm_key, None)
+                        st.session_state.fee_pending_names = []
+                        clear_member_cache()
+                        st.rerun()
+                with dc2:
+                    if st.button("취소", key="fee_delq_no"):
+                        st.session_state.pop(del_confirm_key, None)
+                        st.rerun(scope="fragment")
+            else:
+                if st.button(
+                    f"{delete_quarter} 기록 {delete_count}건 삭제",
+                    key="fee_delq_start",
+                ):
+                    st.session_state[del_confirm_key] = True
+                    st.rerun(scope="fragment")
 
     fee_management_fragment()
 

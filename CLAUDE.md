@@ -31,6 +31,7 @@
 │   ├── sheets.py           # Google Sheets CRUD
 │   ├── scraper.py          # Yes24 스크래핑
 │   ├── settlement.py       # 정산 로직
+│   ├── fee.py              # 회비 분기 계산 (순수 함수, "YYYY-Qn")
 │   ├── bank_parser.py      # 하나은행 거래내역 엑셀 파싱 및 회원 매칭
 │   ├── navigation.py       # 네비게이션 페이지 목록 생성
 │   └── sidebar.py          # 사이드바 및 session_state 초기화
@@ -67,3 +68,8 @@
 - 정산: 동호회 지원금 = floor(min(월 총액 / 2, 30000)), 본인 부담 = 총액 - 지원금
 - 인증: 이름 + PIN(4자리) 로그인 (Members 시트 검증), 관리자는 추가 비밀번호
 - 마감: 접속 시 auto_close_datetime 체크 방식 (cron 미사용)
+- 회비: 분기("YYYY-Qn") 단위로 MembershipFees 시트에 기록하며, **행의 존재 자체가 '납부'**를
+  의미한다 (미납 = 행 없음, 납부 해제 = 행 삭제). 유효 분기는 접수월(`current_order_month`)에서
+  파생하므로 접수월이 다음 분기로 넘어가면 초기화 작업 없이 전원이 미납이 된다.
+  `MemberRecord.fee_paid`는 MembershipFees에서 파생하고, `Members.Fee_Paid` 컬럼은
+  스프레드시트를 직접 열어보는 관리자를 위한 표시용 미러일 뿐이라 읽기에는 쓰지 않는다
